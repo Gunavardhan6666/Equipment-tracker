@@ -32,22 +32,35 @@
 
 ---
 
-### 🔲 Phase 3: The Overlap Engine & API Endpoints
-- [ ] Overlap Engine SQL (algebraic + buffer-aware)
-- [ ] `POST /api/reservations` — booking creation with overlap check
-- [ ] `GET /api/items/:id/availability` — availability window query
-- [ ] `GET /api/reservations` — list with filters
-- [ ] `PATCH /api/reservations/:id/status` — approve/cancel/return
-- [ ] Route-level input validation (express-validator)
+### ✅ Phase 3: The Overlap Engine & API Endpoints — **COMPLETE** ✓
+- [x] Overlap Engine SQL (algebraic + buffer-aware) — defined in `itemsController.js`, imported by `reservationsController.js`
+- [x] `POST /api/reservations` — single-item booking with overlap check → 409 on conflict
+- [x] `POST /api/reservations/kit` — atomic kit booking (all-or-nothing via `withTransaction`)
+- [x] `GET /api/items/:id/availability` — availability window query using Overlap Engine
+- [x] `GET /api/reservations` — list with filters (item_id, user_id, status, kit_id, date range)
+- [x] `PATCH /api/reservations/:id/status` — status state machine (pending→approved→active→returned)
+- [x] `POST /api/reservations/:id/condition-log` — condition log on return
+- [x] Route-level input validation (express-validator) — all routes covered
+- [x] `validate.js` middleware — 422 on validation failure
+- [x] All 4 route groups mounted in `index.js` — `/api/categories`, `/api/items`, `/api/reservations`, `/api/kits`
+- [x] All files pass `node --check` syntax verification
 
 ---
 
-### 🔲 Phase 4: Frontend Architecture & Dashboard
-- [ ] Design system tokens in Tailwind config
-- [ ] Layout shell (sidebar, topbar)
-- [ ] Dashboard overview page
-- [ ] Items list & detail pages
-- [ ] React Router setup
+### ✅ Phase 4: Frontend Architecture & Dashboard — **COMPLETE** ✓
+- [x] Fixed pre-flight bugs: React not installed, `index.html` mount id mismatch, orphan files removed
+- [x] Installed `react@18`, `react-dom@18`, `react-router-dom@6`, `@vitejs/plugin-react`
+- [x] `vite.config.js` — created with `/api` proxy → `http://localhost:5000`
+- [x] `tailwind.config.js` — extended with `glow-emerald`, `glow-rose`, `spin-slow`, `shimmer` keyframe
+- [x] `index.css` — extended with `.sidebar-link`, `.table-row`, `.skeleton`, `.btn-ghost`, `.page-header/title/subtitle`
+- [x] **API Layer** — `src/api/client.js` (native fetch wrapper, ApiError, proxy-aware)
+- [x] **Hooks** — `src/hooks/useApi.js` (generic `{ data, loading, error, refetch }`)
+- [x] **Layout** — `AppShell.jsx` (sidebar + topbar + Outlet), `Sidebar.jsx` (NavLink active states), `Topbar.jsx` (breadcrumb + user pill stub)
+- [x] **UI Components** — `Badge.jsx`, `StatCard.jsx` (animated count-up), `LoadingSpinner.jsx`, `EmptyState.jsx`
+- [x] **Item Components** — `ItemCard.jsx` (grid card), `ConditionBadge.jsx`
+- [x] **Pages** — `Dashboard.jsx` (live stats + recent reservations), `Inventory.jsx` (search/filter/grid/list), `ItemDetail.jsx` (detail + availability stub), `Kits.jsx` (accordion kit cards), `Reservations.jsx` (status tabs + expandable rows), `NotFound.jsx`
+- [x] `App.jsx` — React Router v6 `createBrowserRouter` with AppShell as root layout
+- [x] React Router routes: `/`, `/inventory`, `/inventory/:id`, `/kits`, `/reservations`, `*`
 
 ---
 
@@ -64,6 +77,7 @@
 - [ ] Calendar view (FullCalendar or custom)
 - [ ] Conflict feedback UI (shows blocked time ranges)
 - [ ] Kit checkout flow
+- [ ] ItemDetail availability panel — wire up to Overlap Engine
 
 ---
 
@@ -86,6 +100,9 @@
 | Secrets | `.env` only, never committed | Rule D |
 | Kit atomicity | Kit checkout blocks all member items | Consistent availability |
 | Professor role | Books freely, cannot approve students | Admin-only approval |
+| Frontend API | Native fetch + Vite proxy (no Axios) | Rule F — minimal deps |
+| Routing | React Router v6 `createBrowserRouter` | Data API for Phase 6 loaders |
+| Auth placeholder | User pill in Topbar, role in body | Phase 5 JWT swap-in point |
 
 ---
 
@@ -119,10 +136,10 @@ NODE_ENV=development
 
 ```bash
 # Backend
-cd backend && npm run dev     # nodemon watch mode
+cd backend && npm run dev     # nodemon watch mode (port 5000)
 
 # Frontend
-cd frontend && npm run dev    # Vite dev server (port 5173)
+cd frontend && npm run dev    # Vite dev server (port 5173) — /api proxied to :5000
 ```
 
 ---
@@ -130,4 +147,6 @@ cd frontend && npm run dev    # Vite dev server (port 5173)
 ## 🔖 Git Commit Log (manual — run by developer)
 
 - `feat: Phase 1 — project scaffold, Express entry point, Vite+React+Tailwind frontend`
-- *(Phase 2 commit pending approval)*
+- *(Phase 2 commit pending)*
+- `feat: Phase 3 — Overlap Engine, all API routes (categories, items, reservations, kits), kit atomic booking`
+- `feat: Phase 4 — React Router SPA shell, Dashboard, Inventory, Kits, Reservations pages, API client layer`
