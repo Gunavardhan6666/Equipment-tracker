@@ -3,12 +3,13 @@
 const { Router } = require('express');
 const { body, param, query } = require('express-validator');
 const validate = require('../middleware/validate');
+const { verifyToken }  = require('../middleware/authenticate');
+const { requireRole }  = require('../middleware/authorize');
 const ctrl = require('../controllers/reservationsController');
 
 const router = Router();
 
-const VALID_ROLES    = ['student', 'professor', 'admin'];
-const VALID_STATUSES = ['pending', 'approved', 'active', 'returned', 'cancelled', 'overdue'];
+const VALID_STATUSES   = ['pending', 'approved', 'active', 'returned', 'cancelled', 'overdue'];
 const VALID_CONDITIONS = ['good', 'fair', 'damaged', 'retired'];
 
 // ─── Reusable datetime pair validator ─────────────────────────────────────────
@@ -28,6 +29,8 @@ const datetimePairValidators = [
 ];
 
 // ─── GET /api/reservations ────────────────────────────────────────────────────
+// Public for now — frontend needs to list reservations on Dashboard without auth.
+// In a stricter setup this could also be gated.
 router.get(
   '/',
   [
@@ -50,32 +53,14 @@ router.get(
   ctrl.getReservationById
 );
 
-// ─── POST /api/reservations (single item) ─────────────────────────────────────
-router.post(
-  '/',
-  [
-    body('item_id').isUUID().withMessage('item_id must be a valid UUID.'),
-    body('user_id').isUUID().withMessage('user_id is required and must be a valid UUID.'),
-    body('role')
-      .isIn(VALID_ROLES)
-      .withMessage(`role is required. Must be one of: ${VALID_ROLES.join(', ')}.`),
-    ...datetimePairValidators,
-    body('notes').optional().trim().isLength({ max: 1000 }),
-  ],
-  validate,
-  ctrl.createReservation
-);
-
 // ─── POST /api/reservations/kit (atomic kit booking) ─────────────────────────
-// NOTE: This route MUST be defined before /:id to avoid "kit" being parsed as an ID
+// NOTE: This route MUST be defined before /:id to avoid "kit" being parsed as an ID.
+// Requires authentication — user_id and role are read from the JWT (req.user).
 router.post(
   '/kit',
+  verifyToken,
   [
     body('kit_id').isUUID().withMessage('kit_id must be a valid UUID.'),
-    body('user_id').isUUID().withMessage('user_id is required and must be a valid UUID.'),
-    body('role')
-      .isIn(VALID_ROLES)
-      .withMessage(`role is required. Must be one of: ${VALID_ROLES.join(', ')}.`),
     ...datetimePairValidators,
     body('notes').optional().trim().isLength({ max: 1000 }),
   ],
@@ -83,28 +68,46 @@ router.post(
   ctrl.createKitReservation
 );
 
+// ─── POST /api/reservations (single item) ─────────────────────────────────────
+// Requires authentication — user_id and role are read from the JWT (req.user).
+router.post(
+  '/',
+  verifyToken,
+  [
+    body('item_id').isUUID().withMessage('item_id must be a valid UUID.'),
+    ...datetimePairValidators,
+    body('notes').optional().trim().isLength({ max: 1000 }),
+  ],
+  validate,
+  ctrl.createReservation
+);
+
 // ─── PATCH /api/reservations/:id/status ──────────────────────────────────────
+// Requires authentication AND professor or admin role.
+// Approving (pending → approved) is a privileged action.
 router.patch(
   '/:id/status',
+  verifyToken,
+  requireRole('professor', 'admin'),
   [
     param('id').isUUID().withMessage('Reservation ID must be a valid UUID.'),
     body('status')
       .isIn(VALID_STATUSES)
       .withMessage(`status must be one of: ${VALID_STATUSES.join(', ')}.`),
-    body('approved_by')
-      .optional()
-      .isUUID().withMessage('approved_by must be a valid UUID.'),
+    // approved_by is now derived from req.user — no longer accepted from body
   ],
   validate,
   ctrl.updateStatus
 );
 
 // ─── POST /api/reservations/:id/condition-log ─────────────────────────────────
+// Requires authentication AND professor or admin role (only staff can log condition).
 router.post(
   '/:id/condition-log',
+  verifyToken,
+  requireRole('professor', 'admin'),
   [
     param('id').isUUID().withMessage('Reservation ID must be a valid UUID.'),
-    body('logged_by').isUUID().withMessage('logged_by must be a valid UUID.'),
     body('condition_before').optional().isIn(VALID_CONDITIONS).withMessage(`Must be one of: ${VALID_CONDITIONS.join(', ')}.`),
     body('condition_after').optional().isIn(VALID_CONDITIONS).withMessage(`Must be one of: ${VALID_CONDITIONS.join(', ')}.`),
     body('damage_notes').optional().trim().isLength({ max: 2000 }),

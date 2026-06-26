@@ -1,4 +1,6 @@
 import { NavLink, useLocation } from 'react-router-dom'
+import { useAuth } from '../../context/AuthContext.jsx'
+
 
 // ─── Icons (inline SVG, no dependency) ────────────────────────────────────────
 const DashboardIcon = () => (
@@ -40,8 +42,14 @@ const NAV_ITEMS = [
   { to: '/reservations', label: 'Reservations', icon: <ReservationsIcon /> },
 ]
 
-// ─── Sidebar ──────────────────────────────────────────────────────────────────
+// ─── Sidebar ──────────────────────────────────────────────────────────────────────────────
 export default function Sidebar() {
+  const { user } = useAuth()
+
+  const initials = user?.full_name
+    ? user.full_name.split(' ').map((n) => n[0]).join('').slice(0, 2).toUpperCase()
+    : '?'
+
   return (
     <aside
       id="sidebar"
@@ -81,13 +89,25 @@ export default function Sidebar() {
 
       {/* Footer */}
       <div className="shrink-0 px-4 py-4 border-t border-surface-border">
-        <div className="glass-card px-3 py-2.5 flex items-center gap-2">
-          <span className="w-2 h-2 rounded-full bg-accent-emerald animate-pulse-slow shrink-0" />
-          <div className="min-w-0">
-            <p className="text-[11px] font-semibold text-white/60 leading-none truncate">Phase 4 Active</p>
-            <p className="text-[10px] text-white/25 mt-0.5 truncate">Auth in Phase 5</p>
+        {user ? (
+          <div className="glass-card px-3 py-2.5 flex items-center gap-2.5">
+            <span className="w-7 h-7 rounded-full bg-brand-500/40 border border-brand-500/60 flex items-center justify-center text-brand-200 text-[11px] font-bold shrink-0">
+              {initials}
+            </span>
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-white/70 leading-none truncate">{user.full_name}</p>
+              <p className="text-[10px] text-white/35 mt-0.5 capitalize">{user.role}</p>
+            </div>
           </div>
-        </div>
+        ) : (
+          <div className="glass-card px-3 py-2.5 flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-accent-emerald animate-pulse-slow shrink-0" />
+            <div className="min-w-0">
+              <p className="text-[11px] font-semibold text-white/60 leading-none truncate">Phase 5 Active</p>
+              <p className="text-[10px] text-white/25 mt-0.5 truncate">JWT Auth</p>
+            </div>
+          </div>
+        )}
       </div>
     </aside>
   )

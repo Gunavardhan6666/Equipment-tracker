@@ -26,6 +26,11 @@ const initialStatus = (role) => {
   return 'pending'; // safe default
 };
 
+// ─── Phase 5 note ──────────────────────────────────────────────────────────────
+// user_id and role are now sourced from req.user (JWT payload), not req.body.
+// The route middleware (verifyToken) guarantees req.user is always set.
+// ──────────────────────────────────────────────────────────────────────────────
+
 // ─── GET /api/reservations ────────────────────────────────────────────────────
 // Optional query filters: item_id, user_id, status, start_after, start_before
 const getAllReservations = async (req, res, next) => {
@@ -118,8 +123,10 @@ const getReservationById = async (req, res, next) => {
 
 // ─── POST /api/reservations ───────────────────────────────────────────────────
 // Single-item booking. Runs the Overlap Engine before inserting.
+// user_id and role come from the verified JWT (req.user), not req.body.
 const createReservation = async (req, res, next) => {
-  const { item_id, user_id, role, start_time, end_time, notes } = req.body;
+  const { item_id, start_time, end_time, notes } = req.body;
+  const { id: user_id, role } = req.user;
 
   try {
     // 1. Confirm item exists and is active
@@ -179,8 +186,10 @@ const createReservation = async (req, res, next) => {
 // ─── POST /api/reservations/kit ───────────────────────────────────────────────
 // ATOMIC kit booking. Checks ALL kit member items inside a single transaction.
 // Either every item is booked, or nothing is booked (all-or-nothing).
+// user_id and role come from the verified JWT (req.user), not req.body.
 const createKitReservation = async (req, res, next) => {
-  const { kit_id, user_id, role, start_time, end_time, notes } = req.body;
+  const { kit_id, start_time, end_time, notes } = req.body;
+  const { id: user_id, role } = req.user;
 
   try {
     const reservations = await db.withTransaction(async (client) => {
@@ -285,8 +294,10 @@ const createKitReservation = async (req, res, next) => {
 
 // ─── PATCH /api/reservations/:id/status ──────────────────────────────────────
 // Enforces the status transition state machine.
+// approved_by is always the authenticated user (req.user.id) — not from body.
 const updateStatus = async (req, res, next) => {
-  const { status: newStatus, approved_by } = req.body;
+  const { status: newStatus } = req.body;
+  const approved_by = req.user.id;
 
   try {
     // Fetch current status
@@ -339,8 +350,10 @@ const updateStatus = async (req, res, next) => {
 
 // ─── POST /api/reservations/:id/condition-log ─────────────────────────────────
 // Logs item condition at return. Also updates equipment_items.condition atomically.
+// logged_by is always the authenticated user (req.user.id) — not from body.
 const createConditionLog = async (req, res, next) => {
-  const { logged_by, condition_before, condition_after, damage_notes } = req.body;
+  const { condition_before, condition_after, damage_notes } = req.body;
+  const logged_by = req.user.id;
 
   try {
     const log = await db.withTransaction(async (client) => {

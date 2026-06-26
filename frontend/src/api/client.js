@@ -5,11 +5,13 @@
 // All requests go through the Vite proxy → Express (port 5000) in dev.
 // In production: replace BASE with VITE_API_BASE_URL env var if needed.
 //
-// Every response is parsed as JSON.
-// Non-2xx responses throw an ApiError with { message, status, statusCode }.
+// Phase 5 additions:
+//  • JWT token is read from localStorage and injected as Authorization header.
+//  • 401 responses clear the token and redirect to /login (session expired).
 // ──────────────────────────────────────────────────────────────────────────────
 
-const BASE = '/api' // Vite proxy handles /api/* → http://localhost:5000
+const BASE      = '/api'
+const TOKEN_KEY = 'equiptrack_token'
 
 // ─── ApiError ────────────────────────────────────────────────────────────────
 export class ApiError extends Error {
@@ -22,10 +24,15 @@ export class ApiError extends Error {
 
 // ─── Core request helper ─────────────────────────────────────────────────────
 async function request(method, path, body) {
-  const options = {
-    method,
-    headers: { 'Content-Type': 'application/json' },
+  const headers = { 'Content-Type': 'application/json' }
+
+  // ── Inject JWT if present ─────────────────────────────────────────────────
+  const token = localStorage.getItem(TOKEN_KEY)
+  if (token) {
+    headers['Authorization'] = `Bearer ${token}`
   }
+
+  const options = { method, headers }
 
   if (body !== undefined) {
     options.body = JSON.stringify(body)
@@ -39,6 +46,16 @@ async function request(method, path, body) {
     data = await res.json()
   } catch {
     data = { message: res.statusText }
+  }
+
+  // ── 401 handler: clear token and redirect to /login ───────────────────────
+  if (res.status === 401) {
+    localStorage.removeItem(TOKEN_KEY)
+    localStorage.removeItem('equiptrack_user')
+    // Only redirect if not already on an auth page to avoid loops
+    if (!window.location.pathname.startsWith('/login') && !window.location.pathname.startsWith('/register')) {
+      window.location.href = '/login'
+    }
   }
 
   if (!res.ok) {

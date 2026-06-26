@@ -55,10 +55,9 @@ app.get('/api/health', (_req, res) => {
   });
 });
 
-// ─── API Routes ───────────────────────────────────────────────────────────────
-// Phase 5: auth + users (JWT not wired yet)
-// app.use('/api/auth',  require('./routes/auth'));
-// app.use('/api/users', require('./routes/users'));
+// ─── API Routes ────────────────────────────────────────────────────────────────────
+// Phase 5: auth (JWT)
+app.use('/api/auth', require('./routes/auth'));
 
 // Phase 3: core resource routes (all active)
 app.use('/api/categories',   require('./routes/categories'));
@@ -78,11 +77,12 @@ const startServer = async () => {
   app.listen(PORT, () => {
     console.log('');
     console.log('  ┌─────────────────────────────────────────────┐');
-    console.log(`  │   🎬  Equipment Tracker API                 │`);
-    console.log(`  │   🏫  FilmDept University                   │`);
+    console.log(`  │   🎥  Equipment Tracker API                 │`);
+    console.log(`  │   🏣  FilmDept University                   │`);
     console.log(`  │   🚀  http://localhost:${PORT}                  │`);
     console.log(`  │   🌿  ENV: ${(process.env.NODE_ENV || 'development').padEnd(33)}│`);
-    console.log('  └─────────────────────────────────────────────┘');
+    console.log(`  │   🔐  Phase 5: JWT Auth Active              │`);
+    console.log('  └──────────────────────────────────────────────────');
     console.log('');
   });
 };
