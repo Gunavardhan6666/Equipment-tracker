@@ -2,7 +2,9 @@
 
 const { Router } = require('express');
 const { body, param } = require('express-validator');
-const validate = require('../middleware/validate');
+const validate        = require('../middleware/validate');
+const { verifyToken } = require('../middleware/authenticate');
+const { requireRole } = require('../middleware/authorize');
 const ctrl = require('../controllers/categoriesController');
 
 const router = Router();
@@ -19,9 +21,11 @@ router.get(
 );
 
 // ─── POST /api/categories ─────────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — creates a new equipment category.
 router.post(
   '/',
+  verifyToken,
+  requireRole('admin'),
   [
     body('name')
       .trim()
@@ -40,9 +44,11 @@ router.post(
 );
 
 // ─── PATCH /api/categories/:id ────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — updates category fields.
 router.patch(
   '/:id',
+  verifyToken,
+  requireRole('admin'),
   [
     param('id').isUUID().withMessage('Category ID must be a valid UUID.'),
     body('name')
@@ -62,9 +68,11 @@ router.patch(
 );
 
 // ─── DELETE /api/categories/:id ───────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — soft-deletes a category.
 router.delete(
   '/:id',
+  verifyToken,
+  requireRole('admin'),
   [param('id').isUUID().withMessage('Category ID must be a valid UUID.')],
   validate,
   ctrl.softDeleteCategory

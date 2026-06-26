@@ -238,63 +238,74 @@ const createKitReservation = async (req, res, next) => {
       }
       const kitName = kitCheck.rows[0].name;
 
-      // 2. Fetch all member items
-      const membersResult = await client.query(
-        `SELECT
-           ei.id, ei.name, ei.serial_number
-         FROM kit_items ki
-         JOIN equipment_items ei ON ei.id = ki.item_id
-         WHERE ki.kit_id = $1 AND ei.is_active = TRUE`,
+      // 2. Fetch all kit requirements (equipment_name, quantity)
+      const requirementsRes = await client.query(
+        `SELECT equipment_name, quantity
+         FROM kit_items
+         WHERE kit_id = $1`,
         [kit_id]
       );
-      if (!membersResult.rowCount) {
-        const err = new Error(`Kit "${kitName}" has no active items and cannot be booked.`);
+      if (!requirementsRes.rowCount) {
+        const err = new Error(`Kit "${kitName}" has no equipment requirements and cannot be booked.`);
         err.statusCode = 400;
         throw err;
       }
+      
+      const requirements = requirementsRes.rows;
+      const assignedItems = [];
+      const shortages = [];
 
-      const members = membersResult.rows;
+      // 3. ── DYNAMIC FULFILLMENT & OVERLAP ENGINE ─────────────────────────────
+      for (const req of requirements) {
+        // Find all active physical units matching the name and in good/fair condition
+        const candidatesRes = await client.query(
+          `SELECT id, name, serial_number
+           FROM equipment_items
+           WHERE name = $1 
+             AND is_active = TRUE 
+             AND condition IN ('good', 'fair')`,
+          [req.equipment_name]
+        );
+        
+        let fulfilledCount = 0;
+        
+        for (const candidate of candidatesRes.rows) {
+          if (fulfilledCount >= req.quantity) break; // We have enough
 
-      // 3. ── RUN OVERLAP ENGINE FOR EACH MEMBER ─────────────────────────────
-      const blockedItems = [];
-      const availableItems = [];
-
-      for (const item of members) {
-        const overlapResult = await client.query(OVERLAP_SQL, [item.id, start_time, end_time]);
-        if (overlapResult.rowCount > 0) {
-          blockedItems.push({
-            item_id:       item.id,
-            item_name:     item.name,
-            serial_number: item.serial_number,
-            conflicts:     overlapResult.rows.map((c) => ({
-              reservation_id: c.reservation_id,
-              start_time:     c.start_time,
-              end_time:       c.end_time,
-              status:         c.status,
-              buffer_applied: c.buffer_applied,
-            })),
+          // Check if this specific physical unit is available
+          const overlapResult = await client.query(OVERLAP_SQL, [candidate.id, start_time, end_time]);
+          if (overlapResult.rowCount === 0) {
+            assignedItems.push(candidate);
+            fulfilledCount++;
+          }
+        }
+        
+        if (fulfilledCount < req.quantity) {
+          shortages.push({
+            equipment_name: req.equipment_name,
+            required: req.quantity,
+            available: fulfilledCount
           });
-        } else {
-          availableItems.push(item);
         }
       }
       // ─────────────────────────────────────────────────────────────────────
 
-      // 4. If ANY item is blocked → ROLLBACK (thrown error triggers withTransaction's catch)
-      if (blockedItems.length > 0) {
+      // 4. If ANY item is short → ROLLBACK
+      if (shortages.length > 0) {
+        const msg = shortages.map(s => `"${s.equipment_name}" (need ${s.required}, only found ${s.available})`).join(', ');
         const err = new Error(
-          `Kit booking failed: ${blockedItems.length} of ${members.length} item(s) are unavailable for the requested window.`
+          `Kit booking failed due to insufficient inventory: ${msg}. Please select a different time window.`
         );
         err.statusCode = 409;
-        err.details = { blocked_items: blockedItems, available_items: availableItems };
+        err.details = { shortages };
         throw err;
       }
 
-      // 5. All clear — INSERT one reservation row per kit item
+      // 5. All clear — INSERT one reservation row per assigned physical unit
       const status = initialStatus(role);
       const insertedRows = [];
 
-      for (const item of members) {
+      for (const item of assignedItems) {
         const insertResult = await client.query(
           `INSERT INTO reservations (item_id, kit_id, user_id, start_time, end_time, status, notes)
            VALUES ($1, $2, $3, $4::TIMESTAMPTZ, $5::TIMESTAMPTZ, $6, $7)

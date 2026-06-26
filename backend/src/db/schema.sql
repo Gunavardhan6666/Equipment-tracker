@@ -20,6 +20,7 @@ CREATE INDEX IF NOT EXISTS idx_users_email ON users(email) WHERE is_active = TRU
 CREATE TABLE IF NOT EXISTS equipment_categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name TEXT UNIQUE NOT NULL,
+    prefix TEXT NOT NULL,
     buffer_hours INTEGER NOT NULL DEFAULT 1 CHECK (buffer_hours >= 0),
     description TEXT,
     is_active BOOLEAN DEFAULT TRUE NOT NULL,
@@ -59,13 +60,11 @@ CREATE TABLE IF NOT EXISTS kits (
 CREATE TABLE IF NOT EXISTS kit_items (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     kit_id UUID NOT NULL REFERENCES kits(id) ON DELETE CASCADE,
-    item_id UUID NOT NULL REFERENCES equipment_items(id) ON DELETE RESTRICT,
+    equipment_name TEXT NOT NULL,
+    quantity INTEGER NOT NULL DEFAULT 1,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
-    CONSTRAINT uq_kit_item UNIQUE (kit_id, item_id)
+    CONSTRAINT uq_kit_item_name UNIQUE (kit_id, equipment_name)
 );
-
--- Index on item_id to quickly find which kit an item belongs to
-CREATE INDEX IF NOT EXISTS idx_kit_items_item ON kit_items(item_id);
 
 -- ── 6. RESERVATIONS TABLE ────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS reservations (

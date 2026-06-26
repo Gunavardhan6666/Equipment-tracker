@@ -1,29 +1,50 @@
-import { useState, useMemo, useEffect } from 'react'
+import { useState, useMemo, useEffect, useCallback } from 'react'
 import { Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi.js'
-import { apiGet } from '../api/client.js'
+import { apiGet, apiDelete } from '../api/client.js'
+import { useAuth } from '../context/AuthContext.jsx'
 import ItemCard from '../components/items/ItemCard.jsx'
 import LoadingSpinner from '../components/ui/LoadingSpinner.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
+import ItemFormModal from '../components/admin/ItemFormModal.jsx'
+import DeleteConfirmModal from '../components/admin/DeleteConfirmModal.jsx'
 
+const CONDITIONS = ['good', 'fair', 'damaged', 'in_maintenance', 'retired', 'lost', 'stolen']
 
-const CONDITIONS = ['good', 'fair', 'damaged', 'retired']
+// ─── PencilIcon ───────────────────────────────────────────────────────────────
+function PlusIcon() {
+  return (
+    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+    </svg>
+  )
+}
 
 // ─── Inventory ────────────────────────────────────────────────────────────────
 export default function Inventory() {
+  const { user } = useAuth()
+  const isAdmin = user?.role === 'admin'
+
   const [search,      setSearch]      = useState('')
   const [debouncedQ,  setDebouncedQ]  = useState('')
   const [condition,   setCondition]   = useState('')
   const [categoryId,  setCategoryId]  = useState('')
   const [view,        setView]        = useState('grid') // 'grid' | 'list'
 
-  // Debounce search input — 350 ms delay
+  // Modal state
+  const [addOpen,       setAddOpen]       = useState(false)
+  const [editTarget,    setEditTarget]    = useState(null)  // item object | null
+  const [deleteTarget,  setDeleteTarget]  = useState(null)  // item object | null
+  const [deleteLoading, setDeleteLoading] = useState(false)
+  const [deleteError,   setDeleteError]   = useState(null)
+
+  // Debounce search — 350 ms
   useEffect(() => {
     const t = setTimeout(() => setDebouncedQ(search.trim()), 350)
     return () => clearTimeout(t)
   }, [search])
 
-  // Build query string dynamically
+  // Build query string
   const qs = useMemo(() => {
     const p = new URLSearchParams()
     if (debouncedQ) p.set('search',      debouncedQ)
@@ -35,17 +56,51 @@ export default function Inventory() {
   const items      = useApi(() => apiGet(`/items${qs ? `?${qs}` : ''}`), [qs])
   const categories = useApi(() => apiGet('/categories'))
 
+  // ─── Handlers ───────────────────────────────────────────────────────────────
+  const handleAddSuccess    = useCallback(() => items.refetch(), [items])
+  const handleEditSuccess   = useCallback(() => items.refetch(), [items])
+  const handleEditClick     = useCallback((item) => setEditTarget(item), [])
+  const handleDeleteClick   = useCallback((item) => { setDeleteError(null); setDeleteTarget(item) }, [])
+
+  const handleDeleteConfirm = useCallback(async () => {
+    if (!deleteTarget) return
+    setDeleteLoading(true)
+    setDeleteError(null)
+    try {
+      await apiDelete(`/items/${deleteTarget.id}`)
+      setDeleteTarget(null)
+      items.refetch()
+    } catch (err) {
+      setDeleteError(err.message || 'Failed to archive item.')
+      setDeleteLoading(false)
+    }
+  }, [deleteTarget, items])
+
   return (
     <div className="max-w-7xl mx-auto space-y-6 animate-fade-in">
 
       {/* ── Page header ── */}
       <div className="page-header">
-        <h1 className="page-title">Inventory</h1>
-        <p className="page-subtitle">
-          {items.data?.count != null
-            ? `${items.data.count} item${items.data.count !== 1 ? 's' : ''} found`
-            : 'All active equipment items'}
-        </p>
+        <div>
+          <h1 className="page-title">Inventory</h1>
+          <p className="page-subtitle">
+            {items.data?.count != null
+              ? `${items.data.count} item${items.data.count !== 1 ? 's' : ''} found`
+              : 'All active equipment items'}
+          </p>
+        </div>
+
+        {/* Add button — admin only */}
+        {isAdmin && (
+          <button
+            id="inventory-add-btn"
+            onClick={() => setAddOpen(true)}
+            className="btn-primary"
+          >
+            <PlusIcon />
+            Add New Equipment
+          </button>
+        )}
       </div>
 
       {/* ── Filter bar ── */}
@@ -69,7 +124,7 @@ export default function Inventory() {
         >
           <option value="">All Conditions</option>
           {CONDITIONS.map((c) => (
-            <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+            <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1).replace('_', ' ')}</option>
           ))}
         </select>
 
@@ -109,23 +164,25 @@ export default function Inventory() {
       {items.loading ? (
         <LoadingSpinner className="py-20" />
       ) : items.error ? (
-        <EmptyState
-          icon="⚠️"
-          title="Could not load items"
-          message={items.error.message}
-        />
+        <EmptyState icon="⚠️" title="Could not load items" message={items.error.message} />
       ) : !items.data?.data?.length ? (
         <EmptyState
           icon="📦"
           title="No items found"
           message={debouncedQ || condition || categoryId
             ? 'Try adjusting your filters.'
-            : 'Add equipment via the API to see it here.'}
+            : isAdmin ? 'Click "Add New Equipment" to create the first item.' : 'No equipment items available.'}
         />
       ) : view === 'grid' ? (
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
           {items.data.data.map((item) => (
-            <ItemCard key={item.id} item={item} />
+            <ItemCard
+              key={item.id}
+              item={item}
+              isAdmin={isAdmin}
+              onEdit={handleEditClick}
+              onDelete={handleDeleteClick}
+            />
           ))}
         </div>
       ) : (
@@ -149,20 +206,78 @@ export default function Inventory() {
                   <td className="px-4 py-3 text-white/50 hidden lg:table-cell">{item.category_name}</td>
                   <td className="px-4 py-3">
                     <span className={`badge ${
-                      item.condition === 'good'    ? 'badge-success' :
-                      item.condition === 'fair'    ? 'badge-warning' :
-                      item.condition === 'damaged' ? 'badge-danger'  : 'badge-neutral'
-                    }`}>{item.condition}</span>
+                      item.condition === 'good'           ? 'badge-success' :
+                      item.condition === 'fair'           ? 'badge-warning' :
+                      item.condition === 'damaged'        ? 'badge-danger'  :
+                      item.condition === 'in_maintenance' ? 'badge-brand'   : 'badge-neutral'
+                    }`}>
+                      {item.condition.replace('_', ' ')}
+                    </span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <Link to={`/inventory/${item.id}`} className="btn-ghost text-xs px-2 py-1">
-                      View →
-                    </Link>
+                    <div className="flex items-center justify-end gap-1">
+                      <Link to={`/inventory/${item.id}`} className="btn-ghost text-xs px-2 py-1">
+                        View →
+                      </Link>
+                      {isAdmin && (
+                        <>
+                          <button
+                            id={`list-edit-${item.id}`}
+                            onClick={() => handleEditClick(item)}
+                            className="btn-ghost text-xs px-2 py-1 text-white/40 hover:text-brand-300"
+                            title="Edit"
+                          >
+                            ✏
+                          </button>
+                          <button
+                            id={`list-delete-${item.id}`}
+                            onClick={() => handleDeleteClick(item)}
+                            className="btn-ghost text-xs px-2 py-1 text-white/40 hover:text-accent-rose"
+                            title="Archive"
+                          >
+                            🗑
+                          </button>
+                        </>
+                      )}
+                    </div>
                   </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      )}
+
+      {/* ── Modals ── */}
+      {addOpen && (
+        <ItemFormModal
+          item={null}
+          onClose={() => setAddOpen(false)}
+          onSuccess={handleAddSuccess}
+        />
+      )}
+
+      {editTarget && (
+        <ItemFormModal
+          item={editTarget}
+          onClose={() => setEditTarget(null)}
+          onSuccess={handleEditSuccess}
+        />
+      )}
+
+      {deleteTarget && (
+        <DeleteConfirmModal
+          title={`Archive "${deleteTarget.name}"?`}
+          message={`This will soft-delete the item (serial: ${deleteTarget.serial_number}). It won't appear in inventory but historical reservations are preserved.`}
+          onCancel={() => { setDeleteTarget(null); setDeleteError(null) }}
+          onConfirm={handleDeleteConfirm}
+          loading={deleteLoading}
+        />
+      )}
+
+      {deleteError && (
+        <div className="glass-card p-4 border-accent-rose/30">
+          <p className="text-sm text-accent-rose">⚠ {deleteError}</p>
         </div>
       )}
     </div>

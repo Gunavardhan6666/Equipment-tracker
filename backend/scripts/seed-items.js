@@ -31,17 +31,18 @@ async function seed() {
   // ── 0. Ensure categories exist (idempotent) ──────────────────────────────────
   console.log(Y('  › Ensuring categories exist…'));
   await db.query(`
-    INSERT INTO equipment_categories (name, buffer_hours, description)
+    INSERT INTO equipment_categories (name, prefix, buffer_hours, description)
     VALUES 
-      ('Cameras',       24, 'High-end cinema and mirrorless camera bodies'),
-      ('Lenses',         4, 'Prime and zoom photographic and cinema lenses'),
-      ('Tripods',        4, 'Heavy-duty camera tripods, fluid heads, and slider tracks'),
-      ('Lighting',       2, 'LED panels, softboxes, light stands, and C-stands'),
-      ('Audio',          2, 'Shotgun mics, wireless lavaliers, and field recorders'),
-      ('Cables',         0, 'HDMI, XLR, SDI, power cables, and adapters'),
-      ('Grip Equipment', 1, 'Clamps, flags, sandbags, and general rigging accessories')
+      ('Cameras',        'CAM', 24, 'High-end cinema and mirrorless camera bodies'),
+      ('Lenses',         'LEN',  4, 'Prime and zoom photographic and cinema lenses'),
+      ('Tripods',        'TRI',  4, 'Heavy-duty camera tripods, fluid heads, and slider tracks'),
+      ('Lighting',       'LIT',  2, 'LED panels, softboxes, light stands, and C-stands'),
+      ('Audio',          'AUD',  2, 'Shotgun mics, wireless lavaliers, and field recorders'),
+      ('Cables',         'CBL',  0, 'HDMI, XLR, SDI, power cables, and adapters'),
+      ('Grip Equipment', 'GRP',  1, 'Clamps, flags, sandbags, and general rigging accessories')
     ON CONFLICT (name) DO UPDATE
-      SET buffer_hours = EXCLUDED.buffer_hours,
+      SET prefix       = EXCLUDED.prefix,
+          buffer_hours = EXCLUDED.buffer_hours,
           description  = EXCLUDED.description
   `);
 
@@ -53,127 +54,152 @@ async function seed() {
   catResult.rows.forEach((r) => { cat[r.name] = r.id; });
   console.log(G(`    ✓ ${Object.keys(cat).length} categories ready`));
 
-  // ── 1. Insert equipment items ─────────────────────────────────────────────────
+  // ── 1. Insert equipment items (Multiple Instances) ───────────────────────────
   console.log('');
   console.log(Y('  › Inserting equipment items…'));
 
-  const items = [
+  const itemsConfig = [
     // ── Cameras ──
     {
       category: 'Cameras',
       name: 'Sony FX6 Cinema Camera',
-      serial: 'SNY-FX6-001',
       description: 'Full-frame cinema camera with dual ISO up to 12,800. Includes body, battery grip, and V-lock plate.',
-      condition: 'good',
-      notes: 'Handle with care. Lens mount requires regular inspection.',
+      instances: [
+        { condition: 'good', notes: 'Handle with care. Lens mount requires regular inspection.' },
+        { condition: 'fair', notes: 'Minor scuff on side panel.' },
+      ],
     },
     {
       category: 'Cameras',
       name: 'Blackmagic Pocket Cinema 6K G2',
-      serial: 'BM-P6KG2-002',
       description: 'Super 35 sensor, 6K RAW recording. Requires LP-E6NH batteries (included in kit).',
-      condition: 'good',
-      notes: 'Check CFast card before checkout.',
+      instances: [
+        { condition: 'good', notes: 'Check CFast card before checkout.' },
+        { condition: 'good' },
+        { condition: 'damaged', notes: 'Screen cracked.' },
+      ],
     },
     {
       category: 'Cameras',
       name: 'Canon EOS R5 Mirrorless',
-      serial: 'CAN-EOS-R5-003',
       description: '45MP full-frame mirrorless, 8K RAW internal video. RF mount.',
-      condition: 'fair',
-      notes: 'Minor scuff on bottom plate — cosmetic only. Fully functional.',
+      instances: [
+        { condition: 'fair', notes: 'Minor scuff on bottom plate — cosmetic only. Fully functional.' },
+      ],
     },
 
     // ── Lenses ──
     {
       category: 'Lenses',
       name: 'Sigma 18-35mm f/1.8 Art (EF Mount)',
-      serial: 'SIG-1835-004',
       description: 'Constant f/1.8 zoom, widely used for run-and-gun and narrative productions.',
-      condition: 'good',
-      notes: 'Comes with lens caps and UV filter. Check for dust before shooting.',
+      instances: [
+        { condition: 'good', notes: 'Comes with lens caps and UV filter. Check for dust before shooting.' },
+        { condition: 'good' },
+      ],
     },
     {
       category: 'Lenses',
       name: 'Canon RF 50mm f/1.2L USM',
-      serial: 'CAN-RF50-005',
       description: 'Premium portrait and narrative prime for Canon RF mount. Ultra-fast autofocus.',
-      condition: 'good',
+      instances: [
+        { condition: 'good' },
+      ],
     },
 
     // ── Tripods ──
     {
       category: 'Tripods',
       name: 'Sachtler Video 18 S2 Fluid Head Tripod',
-      serial: 'SAC-V18-006',
       description: 'Professional fluid head with 18 kg payload. Includes spreader, case, and quick-release plate.',
-      condition: 'good',
-      notes: 'Balance the head before each use. Return with fluid head locked.',
+      instances: [
+        { condition: 'good', notes: 'Balance the head before each use. Return with fluid head locked.' },
+        { condition: 'fair' },
+      ],
     },
     {
       category: 'Tripods',
       name: 'Manfrotto 502 Aluminium Tripod Kit',
-      serial: 'MAN-502-007',
       description: 'Mid-weight tripod with 502 head, ideal for documentary and run-and-gun shoots.',
-      condition: 'fair',
-      notes: 'Left leg locking lever is slightly stiff — functional but note at checkout.',
+      instances: [
+        { condition: 'fair', notes: 'Left leg locking lever is slightly stiff — functional but note at checkout.' },
+        { condition: 'good' },
+      ],
     },
 
     // ── Lighting ──
     {
       category: 'Lighting',
       name: 'Aputure 300D Mark II LED Light',
-      serial: 'APT-300D-008',
       description: '300W daylight LED with Bowens mount, 5500K. Includes light dome, barn doors, and Bluetooth controller.',
-      condition: 'good',
+      instances: [
+        { condition: 'good' },
+        { condition: 'good' },
+      ],
     },
 
     // ── Audio ──
     {
       category: 'Audio',
       name: 'Rode NTG5 Shotgun Microphone Kit',
-      serial: 'ROD-NTG5-009',
       description: 'Broadcast-grade RF-biased shotgun mic. Includes pistol grip, windshield, Rycote mount, and XLR cable.',
-      condition: 'good',
+      instances: [
+        { condition: 'good' },
+        { condition: 'good' },
+      ],
     },
     {
       category: 'Audio',
       name: 'Zoom H6 Field Recorder',
-      serial: 'ZOM-H6-010',
       description: '6-track portable field recorder with interchangeable mic capsule. Accepts 4 XLR/TRS inputs.',
-      condition: 'good',
-      notes: 'Comes with AA batteries (replace before return). SD card not included.',
+      instances: [
+        { condition: 'good', notes: 'Comes with AA batteries (replace before return). SD card not included.' },
+        { condition: 'good' },
+      ],
     },
   ];
 
-  const insertedItems = {};
-  let itemCount = 0;
+  // We need the prefixes to generate serials
+  const catPrefixes = {};
+  const prefixRes = await db.query(`SELECT name, prefix FROM equipment_categories`);
+  prefixRes.rows.forEach(r => { catPrefixes[r.name] = r.prefix; });
 
-  for (const item of items) {
-    const catId = cat[item.category];
-    if (!catId) {
-      console.warn(R(`    ✗ Category not found: ${item.category} — skipping ${item.name}`));
+  let itemCount = 0;
+  const serialCounters = {};
+
+  // First delete old instances for a clean seed
+  await db.query(`DELETE FROM kit_items`);
+  await db.query(`DELETE FROM condition_logs`);
+  await db.query(`DELETE FROM reservations`);
+  await db.query(`DELETE FROM equipment_items`);
+
+  for (const group of itemsConfig) {
+    const catId = cat[group.category];
+    const prefix = catPrefixes[group.category];
+    
+    if (!catId || !prefix) {
+      console.warn(R(`    ✗ Category/Prefix not found: ${group.category} — skipping ${group.name}`));
       continue;
     }
 
-    try {
-      const res = await db.query(
-        `INSERT INTO equipment_items (category_id, name, serial_number, description, condition, notes)
-         VALUES ($1, $2, $3, $4, $5, $6)
-         ON CONFLICT (serial_number) DO UPDATE
-           SET name        = EXCLUDED.name,
-               description = EXCLUDED.description,
-               condition   = EXCLUDED.condition,
-               notes       = EXCLUDED.notes
-         RETURNING id, name`,
-        [catId, item.name, item.serial, item.description || null, item.condition, item.notes || null]
-      );
-      const row = res.rows[0];
-      insertedItems[item.serial] = row.id;
-      console.log(G(`    ✓ ${row.name}`) + DIM(` [${item.serial}]`));
-      itemCount++;
-    } catch (err) {
-      console.error(R(`    ✗ Failed: ${item.name} — ${err.message}`));
+    if (!serialCounters[prefix]) serialCounters[prefix] = 1;
+
+    for (const instance of group.instances) {
+      const serial = `${prefix}-${String(serialCounters[prefix]++).padStart(3, '0')}`;
+      
+      try {
+        const res = await db.query(
+          `INSERT INTO equipment_items (category_id, name, serial_number, description, condition, notes)
+           VALUES ($1, $2, $3, $4, $5, $6)
+           RETURNING id, name, serial_number`,
+          [catId, group.name, serial, group.description || null, instance.condition, instance.notes || null]
+        );
+        const row = res.rows[0];
+        console.log(G(`    ✓ ${row.name}`) + DIM(` [${row.serial_number}] - Condition: ${instance.condition}`));
+        itemCount++;
+      } catch (err) {
+        console.error(R(`    ✗ Failed: ${group.name} (${serial}) — ${err.message}`));
+      }
     }
   }
 
@@ -237,31 +263,33 @@ async function seed() {
 
   // ── 4. Add items to kits ───────────────────────────────────────────────────
   console.log('');
-  console.log(Y('  › Adding items to kits…'));
+  console.log(Y('  › Adding items to kits (Quantity based)…'));
 
   const kitMembers = {
-    [kitId]: ['BM-P6KG2-002', 'SIG-1835-004', 'MAN-502-007', 'ROD-NTG5-009', 'ZOM-H6-010'],
-    [kit2Id]: ['SNY-FX6-001', 'CAN-RF50-005', 'SAC-V18-006', 'APT-300D-008'],
+    [kitId]: [
+      { name: 'Blackmagic Pocket Cinema 6K G2', qty: 1 },
+      { name: 'Sigma 18-35mm f/1.8 Art (EF Mount)', qty: 1 },
+      { name: 'Manfrotto 502 Aluminium Tripod Kit', qty: 1 },
+      { name: 'Rode NTG5 Shotgun Microphone Kit', qty: 1 },
+      { name: 'Zoom H6 Field Recorder', qty: 1 },
+    ],
+    [kit2Id]: [
+      { name: 'Sony FX6 Cinema Camera', qty: 1 },
+      { name: 'Canon RF 50mm f/1.2L USM', qty: 1 },
+      { name: 'Sachtler Video 18 S2 Fluid Head Tripod', qty: 1 },
+      { name: 'Aputure 300D Mark II LED Light', qty: 2 },
+    ],
   };
 
-  for (const [kId, serials] of Object.entries(kitMembers)) {
+  for (const [kId, itemsReq] of Object.entries(kitMembers)) {
     if (!kId || kId === 'null') continue;
-    for (const serial of serials) {
-      const itemId = insertedItems[serial];
-      if (!itemId) {
-        // Try to look up from DB (in case script is re-run)
-        const lookup = await db.query(
-          `SELECT id FROM equipment_items WHERE serial_number = $1`, [serial]
-        );
-        if (!lookup.rowCount) continue;
-        insertedItems[serial] = lookup.rows[0].id;
-      }
+    for (const req of itemsReq) {
       try {
         await db.query(
-          `INSERT INTO kit_items (kit_id, item_id) VALUES ($1, $2) ON CONFLICT DO NOTHING`,
-          [kId, insertedItems[serial]]
+          `INSERT INTO kit_items (kit_id, equipment_name, quantity) VALUES ($1, $2, $3) ON CONFLICT DO NOTHING`,
+          [kId, req.name, req.qty]
         );
-        console.log(DIM(`    + linked ${serial} → kit`));
+        console.log(DIM(`    + linked ${req.qty}x ${req.name} → kit`));
       } catch (err) {
         console.error(R(`    ✗ kit_items error: ${err.message}`));
       }

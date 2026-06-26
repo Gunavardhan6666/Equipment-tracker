@@ -10,7 +10,7 @@ const ctrl = require('../controllers/reservationsController');
 const router = Router();
 
 const VALID_STATUSES   = ['pending', 'approved', 'active', 'returned', 'cancelled', 'overdue'];
-const VALID_CONDITIONS = ['good', 'fair', 'damaged', 'retired'];
+const VALID_CONDITIONS = ['good', 'fair', 'damaged', 'in_maintenance', 'retired', 'lost', 'stolen'];
 
 // ─── Reusable datetime pair validator ─────────────────────────────────────────
 const datetimePairValidators = [

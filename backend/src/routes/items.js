@@ -2,14 +2,18 @@
 
 const { Router } = require('express');
 const { body, param, query } = require('express-validator');
-const validate = require('../middleware/validate');
+const validate        = require('../middleware/validate');
+const { verifyToken } = require('../middleware/authenticate');
+const { requireRole } = require('../middleware/authorize');
 const ctrl = require('../controllers/itemsController');
 
 const router = Router();
 
-const VALID_CONDITIONS = ['good', 'fair', 'damaged', 'retired'];
+// All valid item condition values (equipment_items.condition is a VARCHAR — no DB enum)
+const VALID_CONDITIONS = ['good', 'fair', 'damaged', 'in_maintenance', 'retired', 'lost', 'stolen'];
 
 // ─── GET /api/items ───────────────────────────────────────────────────────────
+// Public — browsing inventory does not require authentication.
 router.get(
   '/',
   [
@@ -52,13 +56,14 @@ router.get(
 );
 
 // ─── POST /api/items ──────────────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — creates a new equipment item.
 router.post(
   '/',
+  verifyToken,
+  requireRole('admin'),
   [
     body('category_id').isUUID().withMessage('category_id must be a valid UUID.'),
     body('name').trim().notEmpty().withMessage('Item name is required.').isLength({ max: 200 }),
-    body('serial_number').trim().notEmpty().withMessage('serial_number is required.').isLength({ max: 100 }),
     body('description').optional().trim().isLength({ max: 1000 }),
     body('condition').optional().isIn(VALID_CONDITIONS).withMessage(`condition must be one of: ${VALID_CONDITIONS.join(', ')}.`),
     body('notes').optional().trim().isLength({ max: 1000 }),
@@ -68,9 +73,11 @@ router.post(
 );
 
 // ─── PATCH /api/items/:id ─────────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — updates item fields (including condition/status).
 router.patch(
   '/:id',
+  verifyToken,
+  requireRole('admin'),
   [
     param('id').isUUID().withMessage('Item ID must be a valid UUID.'),
     body('category_id').optional().isUUID().withMessage('category_id must be a valid UUID.'),
@@ -85,9 +92,11 @@ router.patch(
 );
 
 // ─── DELETE /api/items/:id ────────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — soft-deletes (archives) the item.
 router.delete(
   '/:id',
+  verifyToken,
+  requireRole('admin'),
   [param('id').isUUID().withMessage('Item ID must be a valid UUID.')],
   validate,
   ctrl.softDeleteItem

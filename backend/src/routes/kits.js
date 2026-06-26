@@ -2,12 +2,15 @@
 
 const { Router } = require('express');
 const { body, param } = require('express-validator');
-const validate = require('../middleware/validate');
+const validate        = require('../middleware/validate');
+const { verifyToken } = require('../middleware/authenticate');
+const { requireRole } = require('../middleware/authorize');
 const ctrl = require('../controllers/kitsController');
 
 const router = Router();
 
 // ─── GET /api/kits ────────────────────────────────────────────────────────────
+// Public — any authenticated (or even unauthenticated) user can browse kits.
 router.get('/', ctrl.getAllKits);
 
 // ─── GET /api/kits/:id ────────────────────────────────────────────────────────
@@ -19,46 +22,69 @@ router.get(
 );
 
 // ─── POST /api/kits ───────────────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — creates a new kit.
 router.post(
   '/',
+  verifyToken,
+  requireRole('admin'),
   [
     body('name').trim().notEmpty().withMessage('Kit name is required.').isLength({ max: 200 }),
     body('description').optional().trim().isLength({ max: 1000 }),
-    body('created_by').optional().isUUID().withMessage('created_by must be a valid UUID.'),
   ],
   validate,
   ctrl.createKit
 );
 
-// ─── POST /api/kits/:id/items ─────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
-router.post(
-  '/:id/items',
+// ─── PATCH /api/kits/:id ──────────────────────────────────────────────────────
+// Admin only — updates kit name and/or description.
+router.patch(
+  '/:id',
+  verifyToken,
+  requireRole('admin'),
   [
     param('id').isUUID().withMessage('Kit ID must be a valid UUID.'),
-    body('item_id').isUUID().withMessage('item_id must be a valid UUID.'),
+    body('name').optional().trim().notEmpty().withMessage('Name cannot be empty.').isLength({ max: 200 }),
+    body('description').optional().trim().isLength({ max: 1000 }),
+  ],
+  validate,
+  ctrl.updateKit
+);
+
+// ─── POST /api/kits/:id/items ─────────────────────────────────────────────────
+// Admin only — add an item to a kit.
+router.post(
+  '/:id/items',
+  verifyToken,
+  requireRole('admin'),
+  [
+    param('id').isUUID().withMessage('Invalid kit ID.'),
+    body('equipment_name').trim().notEmpty().withMessage('equipment_name is required.'),
+    body('quantity').optional().isInt({ min: 1 }).withMessage('quantity must be at least 1.'),
   ],
   validate,
   ctrl.addItemToKit
 );
 
-// ─── DELETE /api/kits/:id/items/:itemId ───────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// ─── DELETE /api/kits/:id/items/:equipmentName ───────────────────────────────────────
+// Admin only — remove an item from a kit (hard delete from junction table).
 router.delete(
-  '/:id/items/:itemId',
+  '/:id/items/:equipmentName',
+  verifyToken,
+  requireRole('admin'),
   [
-    param('id').isUUID().withMessage('Kit ID must be a valid UUID.'),
-    param('itemId').isUUID().withMessage('itemId must be a valid UUID.'),
+    param('id').isUUID().withMessage('Invalid kit ID.'),
+    param('equipmentName').trim().notEmpty().withMessage('equipmentName is required.'),
   ],
   validate,
   ctrl.removeItemFromKit
 );
 
 // ─── DELETE /api/kits/:id ─────────────────────────────────────────────────────
-// TODO Phase 5: add requireRole('admin') middleware before validate
+// Admin only — soft-deletes (archives) the kit.
 router.delete(
   '/:id',
+  verifyToken,
+  requireRole('admin'),
   [param('id').isUUID().withMessage('Kit ID must be a valid UUID.')],
   validate,
   ctrl.softDeleteKit

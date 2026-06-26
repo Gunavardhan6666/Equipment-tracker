@@ -9,7 +9,8 @@ const getAllKits = async (_req, res, next) => {
       `SELECT
          k.id, k.name, k.description, k.is_active, k.created_at, k.updated_at,
          u.full_name  AS created_by_name,
-         COUNT(ki.id) AS item_count
+         COALESCE(SUM(ki.quantity), 0) AS item_count,
+         STRING_AGG(ki.quantity || 'x ' || ki.equipment_name, ', ') AS contents_summary
        FROM kits k
        LEFT JOIN users     u  ON u.id  = k.created_by
        LEFT JOIN kit_items ki ON ki.kit_id = k.id
@@ -17,7 +18,12 @@ const getAllKits = async (_req, res, next) => {
        GROUP BY k.id, u.full_name
        ORDER BY k.created_at DESC`
     );
-    res.status(200).json({ status: 'ok', count: result.rowCount, data: result.rows });
+    // Parse SUM back to integer since Postgres returns SUM as string/bigint
+    const data = result.rows.map(row => ({
+      ...row,
+      item_count: parseInt(row.item_count, 10)
+    }));
+    res.status(200).json({ status: 'ok', count: result.rowCount, data });
   } catch (err) {
     next(err);
   }
@@ -41,17 +47,15 @@ const getKitById = async (req, res, next) => {
       return next(err);
     }
 
-    // Fetch all member items for this kit
+    // Fetch all member requirements for this kit
     const itemsResult = await db.query(
       `SELECT
-         ei.id, ei.name, ei.serial_number, ei.condition, ei.is_active,
-         ec.id AS category_id, ec.name AS category_name, ec.buffer_hours,
-         ki.id AS kit_item_id
+         ki.id AS kit_item_id,
+         ki.equipment_name,
+         ki.quantity
        FROM kit_items ki
-       JOIN equipment_items      ei ON ei.id = ki.item_id
-       JOIN equipment_categories ec ON ec.id = ei.category_id
        WHERE ki.kit_id = $1
-       ORDER BY ec.name, ei.name`,
+       ORDER BY ki.equipment_name`,
       [req.params.id]
     );
 
@@ -69,27 +73,57 @@ const getKitById = async (req, res, next) => {
 
 // ─── POST /api/kits ───────────────────────────────────────────────────────────
 const createKit = async (req, res, next) => {
-  const { name, description, created_by } = req.body;
+  const { name, description } = req.body;
+  const created_by = req.user?.id ?? null; // read from JWT — not body
   try {
     const result = await db.query(
       `INSERT INTO kits (name, description, created_by)
        VALUES ($1, $2, $3)
        RETURNING *`,
-      [name, description || null, created_by || null]
+      [name, description || null, created_by]
     );
     res.status(201).json({ status: 'ok', data: result.rows[0] });
   } catch (err) {
-    if (err.code === '23503') {
+    next(err);
+  }
+};
+
+// ─── PATCH /api/kits/:id ─────────────────────────────────────────────────────
+const updateKit = async (req, res, next) => {
+  const { name, description } = req.body;
+  try {
+    const fields = [];
+    const params = [];
+    let idx = 1;
+
+    if (name        !== undefined) { fields.push(`name = $${idx++}`);        params.push(name); }
+    if (description !== undefined) { fields.push(`description = $${idx++}`); params.push(description); }
+
+    if (!fields.length) {
+      const err = new Error('No updatable fields provided.');
       err.statusCode = 400;
-      err.message = `User with id "${created_by}" does not exist.`;
+      return next(err);
     }
+
+    params.push(req.params.id);
+    const result = await db.query(
+      `UPDATE kits SET ${fields.join(', ')} WHERE id = $${idx} AND is_active = TRUE RETURNING *`,
+      params
+    );
+    if (!result.rowCount) {
+      const err = new Error('Kit not found.');
+      err.statusCode = 404;
+      return next(err);
+    }
+    res.status(200).json({ status: 'ok', data: result.rows[0] });
+  } catch (err) {
     next(err);
   }
 };
 
 // ─── POST /api/kits/:id/items ─────────────────────────────────────────────────
 const addItemToKit = async (req, res, next) => {
-  const { item_id } = req.body;
+  const { equipment_name, quantity } = req.body;
   const { id: kit_id } = req.params;
   try {
     // Verify kit exists
@@ -101,34 +135,30 @@ const addItemToKit = async (req, res, next) => {
     }
 
     const result = await db.query(
-      `INSERT INTO kit_items (kit_id, item_id) VALUES ($1, $2) RETURNING *`,
-      [kit_id, item_id]
+      `INSERT INTO kit_items (kit_id, equipment_name, quantity) 
+       VALUES ($1, $2, $3) 
+       ON CONFLICT (kit_id, equipment_name) DO UPDATE 
+       SET quantity = EXCLUDED.quantity 
+       RETURNING *`,
+      [kit_id, equipment_name, quantity || 1]
     );
     res.status(201).json({ status: 'ok', data: result.rows[0] });
   } catch (err) {
-    if (err.code === '23505') {
-      err.statusCode = 409;
-      err.message = 'This item is already a member of this kit.';
-    }
-    if (err.code === '23503') {
-      err.statusCode = 400;
-      err.message = `Equipment item with id "${item_id}" does not exist.`;
-    }
     next(err);
   }
 };
 
-// ─── DELETE /api/kits/:id/items/:itemId ───────────────────────────────────────
-// This is a real DELETE (junction table row removal — not soft-deleted assets)
+// ─── DELETE /api/kits/:id/items/:equipmentName ───────────────────────────────────────
+// This is a real DELETE (junction table row removal)
 const removeItemFromKit = async (req, res, next) => {
-  const { id: kit_id, itemId: item_id } = req.params;
+  const { id: kit_id, equipmentName: equipment_name } = req.params;
   try {
     const result = await db.query(
-      `DELETE FROM kit_items WHERE kit_id = $1 AND item_id = $2 RETURNING *`,
-      [kit_id, item_id]
+      `DELETE FROM kit_items WHERE kit_id = $1 AND equipment_name = $2 RETURNING *`,
+      [kit_id, equipment_name]
     );
     if (!result.rowCount) {
-      const err = new Error('Item is not a member of this kit.');
+      const err = new Error('Equipment is not a member of this kit.');
       err.statusCode = 404;
       return next(err);
     }
@@ -164,6 +194,7 @@ module.exports = {
   getAllKits,
   getKitById,
   createKit,
+  updateKit,
   addItemToKit,
   removeItemFromKit,
   softDeleteKit,

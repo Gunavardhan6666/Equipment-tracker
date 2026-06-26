@@ -153,24 +153,51 @@ const checkAvailability = async (req, res, next) => {
 
 // ─── POST /api/items ──────────────────────────────────────────────────────────
 const createItem = async (req, res, next) => {
-  const { category_id, name, serial_number, description, condition, notes } = req.body;
+  const { category_id, name, description, condition, notes } = req.body;
   try {
-    const result = await db.query(
-      `INSERT INTO equipment_items (category_id, name, serial_number, description, condition, notes)
-       VALUES ($1, $2, $3, $4, $5, $6)
-       RETURNING *`,
-      [category_id, name, serial_number, description || null, condition || 'good', notes || null]
-    );
-    res.status(201).json({ status: 'ok', data: result.rows[0] });
+    const result = await db.withTransaction(async (client) => {
+      // 1. Fetch category prefix
+      const catCheck = await client.query(
+        `SELECT prefix FROM equipment_categories WHERE id = $1`,
+        [category_id]
+      );
+      if (!catCheck.rowCount) {
+        const err = new Error(`Category with id "${category_id}" does not exist.`);
+        err.statusCode = 400;
+        throw err;
+      }
+      const prefix = catCheck.rows[0].prefix;
+
+      // 2. Find highest serial number for this prefix
+      const maxSerialRes = await client.query(
+        `SELECT serial_number FROM equipment_items 
+         WHERE serial_number LIKE $1 
+         ORDER BY serial_number DESC LIMIT 1`,
+        [`${prefix}-%`]
+      );
+
+      let nextNum = 1;
+      if (maxSerialRes.rowCount > 0) {
+        const lastSerial = maxSerialRes.rows[0].serial_number;
+        const match = lastSerial.match(new RegExp(`^${prefix}-(\\d+)$`));
+        if (match) {
+          nextNum = parseInt(match[1], 10) + 1;
+        }
+      }
+      const serial_number = `${prefix}-${String(nextNum).padStart(3, '0')}`;
+
+      // 3. Insert new item
+      const insertRes = await client.query(
+        `INSERT INTO equipment_items (category_id, name, serial_number, description, condition, notes)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         RETURNING *`,
+        [category_id, name, serial_number, description || null, condition || 'good', notes || null]
+      );
+      return insertRes.rows[0];
+    });
+
+    res.status(201).json({ status: 'ok', data: result });
   } catch (err) {
-    if (err.code === '23505') {
-      err.statusCode = 409;
-      err.message = `An item with serial number "${serial_number}" already exists.`;
-    }
-    if (err.code === '23503') {
-      err.statusCode = 400;
-      err.message = `Category with id "${category_id}" does not exist.`;
-    }
     next(err);
   }
 };
