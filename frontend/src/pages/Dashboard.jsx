@@ -118,7 +118,7 @@ export default function Dashboard() {
                 <div key={cat.id} className="flex items-center justify-between py-2 border-b border-surface-border/40 last:border-0">
                   <span className="text-sm text-white/70">{cat.name}</span>
                   <span className="text-xs text-white/30 font-mono">
-                    {cat.buffer_hours}h buffer
+                    {typeof cat.buffer_hours === 'object' ? (cat.buffer_hours?.hours || 0) : cat.buffer_hours}h buffer
                   </span>
                 </div>
               ))}
