@@ -1,4 +1,4 @@
-import { Navigate, useLocation } from 'react-router-dom'
+import { Navigate, useLocation, Link } from 'react-router-dom'
 import { useAuth } from '../../context/AuthContext.jsx'
 
 // ─── ProtectedRoute ───────────────────────────────────────────────────────────
@@ -29,9 +29,9 @@ export default function ProtectedRoute({ children, roles }) {
             Your role (<span className="text-accent-amber font-semibold">{user.role}</span>)
             does not have permission to view this page.
           </p>
-          <a href="/" className="btn-primary inline-block">
+          <Link to="/" className="btn-primary inline-block">
             ← Back to Dashboard
-          </a>
+          </Link>
         </div>
       </div>
     )

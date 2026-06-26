@@ -1,5 +1,7 @@
+import { useNavigate } from 'react-router-dom'
 import { useApi } from '../hooks/useApi.js'
 import { apiGet } from '../api/client.js'
+import { useAuth } from '../context/AuthContext.jsx'
 import StatCard from '../components/ui/StatCard.jsx'
 import Badge from '../components/ui/Badge.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
@@ -20,11 +22,26 @@ function formatDate(iso) {
 
 // ─── Dashboard ────────────────────────────────────────────────────────────────
 export default function Dashboard() {
+  const navigate = useNavigate()
+  const { user } = useAuth()
+
+  const isStudent = user?.role === 'student'
+  const studentUserId = isStudent ? user?.id : null
+
   const items        = useApi(() => apiGet('/items'))
-  const reservations = useApi(() => apiGet('/reservations'))
+  const reservations = useApi(() => {
+    const url = studentUserId ? `/reservations?user_id=${studentUserId}` : '/reservations'
+    return apiGet(url)
+  }, [studentUserId])
   const kits         = useApi(() => apiGet('/kits'))
-  const pending      = useApi(() => apiGet('/reservations?status=pending'))
-  const active       = useApi(() => apiGet('/reservations?status=active'))
+  const pending      = useApi(() => {
+    const url = studentUserId ? `/reservations?status=pending&user_id=${studentUserId}` : '/reservations?status=pending'
+    return apiGet(url)
+  }, [studentUserId])
+  const active       = useApi(() => {
+    const url = studentUserId ? `/reservations?status=active&user_id=${studentUserId}` : '/reservations?status=active'
+    return apiGet(url)
+  }, [studentUserId])
   const categories   = useApi(() => apiGet('/categories'))
 
   const recentRes = reservations.data?.data?.slice(0, 6) ?? []
@@ -38,32 +55,67 @@ export default function Dashboard() {
         <p className="page-subtitle">Live overview of FilmDept University equipment inventory</p>
       </div>
 
-      {/* ── Stats Row ── */}
+      {/* ── Stats Row — each card links to the relevant filtered view ── */}
       <div className="grid grid-cols-2 xl:grid-cols-4 gap-4">
-        <StatCard
-          value={items.data?.count}
-          label="Equipment Items"
-          color="text-brand-400"
-          loading={items.loading}
-        />
-        <StatCard
-          value={kits.data?.count}
-          label="Active Kits"
-          color="text-accent-cyan"
-          loading={kits.loading}
-        />
-        <StatCard
-          value={active.data?.count}
-          label="Active Loans"
-          color="text-accent-emerald"
-          loading={active.loading}
-        />
-        <StatCard
-          value={pending.data?.count}
-          label="Pending Approval"
-          color="text-accent-amber"
-          loading={pending.loading}
-        />
+        {/* Equipment Items → /inventory */}
+        <button
+          id="dash-card-items"
+          className="text-left"
+          onClick={() => navigate('/inventory')}
+        >
+          <StatCard
+            value={items.data?.count}
+            label="Equipment Items"
+            color="text-brand-400"
+            loading={items.loading}
+            clickable
+          />
+        </button>
+
+        {/* Active Kits → /kits */}
+        <button
+          id="dash-card-kits"
+          className="text-left"
+          onClick={() => navigate('/kits')}
+        >
+          <StatCard
+            value={kits.data?.count}
+            label="Active Kits"
+            color="text-accent-cyan"
+            loading={kits.loading}
+            clickable
+          />
+        </button>
+
+        {/* Active Loans → /reservations?status=active */}
+        <button
+          id="dash-card-active"
+          className="text-left"
+          onClick={() => navigate('/reservations', { state: { initialTab: 'active' } })}
+        >
+          <StatCard
+            value={active.data?.count}
+            label="Active Loans"
+            color="text-accent-emerald"
+            loading={active.loading}
+            clickable
+          />
+        </button>
+
+        {/* Pending Approval → /reservations?status=pending */}
+        <button
+          id="dash-card-pending"
+          className="text-left"
+          onClick={() => navigate('/reservations', { state: { initialTab: 'pending' } })}
+        >
+          <StatCard
+            value={pending.data?.count}
+            label="Pending Approval"
+            color="text-accent-amber"
+            loading={pending.loading}
+            clickable
+          />
+        </button>
       </div>
 
       {/* ── Two-column section ── */}
@@ -73,9 +125,12 @@ export default function Dashboard() {
         <div className="xl:col-span-2 glass-card p-6">
           <div className="flex items-center justify-between mb-5">
             <h2 className="text-base font-semibold text-white">Recent Reservations</h2>
-            <a href="/reservations" className="text-xs text-brand-400 hover:text-brand-300 transition-colors">
+            <button
+              onClick={() => navigate('/reservations')}
+              className="text-xs text-brand-400 hover:text-brand-300 transition-colors"
+            >
               View all →
-            </a>
+            </button>
           </div>
 
           {reservations.loading ? (
@@ -84,12 +139,12 @@ export default function Dashboard() {
             <EmptyState
               icon="📋"
               title="No reservations yet"
-              message="Bookings created via the API will appear here."
+              message="Bookings created via the Booking UI will appear here."
             />
           ) : (
             <div className="space-y-0">
               {recentRes.map((r) => (
-                <div key={r.id} className="table-row py-3 flex items-center gap-4">
+                <div key={r.id} className="table-row py-3 flex items-center gap-4 cursor-pointer" onClick={() => navigate('/reservations')}>
                   <div className="flex-1 min-w-0">
                     <p className="text-sm font-medium text-white truncate">{r.item_name}</p>
                     <p className="text-xs text-white/35 font-mono truncate">{r.user_name ?? r.user_id}</p>

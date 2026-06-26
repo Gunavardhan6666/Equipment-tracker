@@ -29,10 +29,12 @@ const datetimePairValidators = [
 ];
 
 // ─── GET /api/reservations ────────────────────────────────────────────────────
-// Public for now — frontend needs to list reservations on Dashboard without auth.
-// In a stricter setup this could also be gated.
+// Requires authentication. Controller enforces role-based data scoping:
+//   students  → results are always filtered to their own user_id (IDOR prevention)
+//   professors/admins → global results; optional ?user_id= filter respected
 router.get(
   '/',
+  verifyToken,
   [
     query('item_id').optional().isUUID().withMessage('item_id must be a valid UUID.'),
     query('user_id').optional().isUUID().withMessage('user_id must be a valid UUID.'),
@@ -46,8 +48,11 @@ router.get(
 );
 
 // ─── GET /api/reservations/:id ────────────────────────────────────────────────
+// Requires authentication. Students receive 403 if the reservation
+// belongs to another user (enforced in controller).
 router.get(
   '/:id',
+  verifyToken,
   [param('id').isUUID().withMessage('Reservation ID must be a valid UUID.')],
   validate,
   ctrl.getReservationById
@@ -83,21 +88,23 @@ router.post(
 );
 
 // ─── PATCH /api/reservations/:id/status ──────────────────────────────────────
-// Requires authentication AND professor or admin role.
-// Approving (pending → approved) is a privileged action.
+// All authenticated users can call this endpoint.
+// Fine-grained role authorization (who can approve / cancel what) is enforced
+// inside the controller (updateStatus), not at the route level.
+// This allows students to cancel their own reservations while the controller
+// still blocks them from approving or touching others'.
 router.patch(
   '/:id/status',
   verifyToken,
-  requireRole('professor', 'admin'),
   [
     param('id').isUUID().withMessage('Reservation ID must be a valid UUID.'),
     body('status')
       .isIn(VALID_STATUSES)
       .withMessage(`status must be one of: ${VALID_STATUSES.join(', ')}.`),
-    // approved_by is now derived from req.user — no longer accepted from body
   ],
   validate,
   ctrl.updateStatus
+
 );
 
 // ─── POST /api/reservations/:id/condition-log ─────────────────────────────────

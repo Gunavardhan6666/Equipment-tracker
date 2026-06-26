@@ -1,9 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
+import { Link } from 'react-router-dom'
 import { useApi } from '../hooks/useApi.js'
 import { apiGet } from '../api/client.js'
 import ItemCard from '../components/items/ItemCard.jsx'
 import LoadingSpinner from '../components/ui/LoadingSpinner.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
+
 
 const CONDITIONS = ['good', 'fair', 'damaged', 'retired']
 
@@ -153,9 +155,9 @@ export default function Inventory() {
                     }`}>{item.condition}</span>
                   </td>
                   <td className="px-4 py-3 text-right">
-                    <a href={`/inventory/${item.id}`} className="btn-ghost text-xs px-2 py-1">
+                    <Link to={`/inventory/${item.id}`} className="btn-ghost text-xs px-2 py-1">
                       View →
-                    </a>
+                    </Link>
                   </td>
                 </tr>
               ))}

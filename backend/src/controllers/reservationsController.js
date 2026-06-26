@@ -32,21 +32,42 @@ const initialStatus = (role) => {
 // ──────────────────────────────────────────────────────────────────────────────
 
 // ─── GET /api/reservations ────────────────────────────────────────────────────
-// Optional query filters: item_id, user_id, status, start_after, start_before
+// Optional query filters: item_id, user_id (admin/professor only), status,
+//                         start_after, start_before, kit_id
+//
+// ── Security: Role-scoped data access ──────────────────────────────────────────
+//  student   → user_id from query is IGNORED; filter is FORCED to req.user.id
+//  professor
+//  admin     → may optionally filter by any user_id from query params
+// ──────────────────────────────────────────────────────────────────────────────
 const getAllReservations = async (req, res, next) => {
   try {
-    const { item_id, user_id, status, start_after, start_before, kit_id } = req.query;
+    const { item_id, status, start_after, start_before, kit_id } = req.query;
+    const { id: actorId, role: actorRole } = req.user;
 
     const conditions = ['r.is_active = TRUE'];
     const params = [];
     let idx = 1;
 
-    if (item_id)      { conditions.push(`r.item_id = $${idx++}`);                       params.push(item_id); }
-    if (user_id)      { conditions.push(`r.user_id = $${idx++}`);                       params.push(user_id); }
-    if (status)       { conditions.push(`r.status = $${idx++}`);                        params.push(status); }
-    if (kit_id)       { conditions.push(`r.kit_id = $${idx++}`);                        params.push(kit_id); }
-    if (start_after)  { conditions.push(`r.start_time >= $${idx++}::TIMESTAMPTZ`);      params.push(start_after); }
-    if (start_before) { conditions.push(`r.start_time <= $${idx++}::TIMESTAMPTZ`);      params.push(start_before); }
+    // ── IDOR prevention: students are always scoped to their own user_id ────────
+    if (actorRole === 'student') {
+      conditions.push(`r.user_id = $${idx++}`);
+      params.push(actorId);
+    } else {
+      // Admins / professors may optionally narrow down to a specific user
+      const { user_id } = req.query;
+      if (user_id) {
+        conditions.push(`r.user_id = $${idx++}`);
+        params.push(user_id);
+      }
+    }
+    // ────────────────────────────────────────────────────────────────────────────
+
+    if (item_id)      { conditions.push(`r.item_id = $${idx++}`);                  params.push(item_id); }
+    if (status)       { conditions.push(`r.status = $${idx++}`);                   params.push(status); }
+    if (kit_id)       { conditions.push(`r.kit_id = $${idx++}`);                   params.push(kit_id); }
+    if (start_after)  { conditions.push(`r.start_time >= $${idx++}::TIMESTAMPTZ`); params.push(start_after); }
+    if (start_before) { conditions.push(`r.start_time <= $${idx++}::TIMESTAMPTZ`); params.push(start_before); }
 
     const sql = `
       SELECT
@@ -81,6 +102,7 @@ const getAllReservations = async (req, res, next) => {
 };
 
 // ─── GET /api/reservations/:id ────────────────────────────────────────────────
+// Students can only retrieve their own reservation. Admins/professors are unrestricted.
 const getReservationById = async (req, res, next) => {
   try {
     const result = await db.query(
@@ -115,7 +137,18 @@ const getReservationById = async (req, res, next) => {
       err.statusCode = 404;
       return next(err);
     }
-    res.status(200).json({ status: 'ok', data: result.rows[0] });
+
+    const reservation = result.rows[0];
+
+    // ── IDOR prevention: students can only view their own reservations ──────────
+    if (req.user.role === 'student' && reservation.user_id !== req.user.id) {
+      const err = new Error('Access denied: you can only view your own reservations.');
+      err.statusCode = 403;
+      return next(err);
+    }
+    // ────────────────────────────────────────────────────────────────────────────
+
+    res.status(200).json({ status: 'ok', data: reservation });
   } catch (err) {
     next(err);
   }
@@ -293,16 +326,23 @@ const createKitReservation = async (req, res, next) => {
 };
 
 // ─── PATCH /api/reservations/:id/status ──────────────────────────────────────
-// Enforces the status transition state machine.
-// approved_by is always the authenticated user (req.user.id) — not from body.
+// Enforces the status transition state machine AND role-based authorization.
+//
+// Rules:
+//  admin     — unrestricted; can transition any reservation
+//  professor — can approve pending reservations
+//              can cancel ONLY their own reservations (pending or approved)
+//              CANNOT cancel another user's approved reservation
+//  student   — this endpoint is blocked at the route level (requireRole)
+//              but if somehow reached, only own pending/approved cancels allowed
 const updateStatus = async (req, res, next) => {
   const { status: newStatus } = req.body;
-  const approved_by = req.user.id;
+  const { id: actorId, role: actorRole } = req.user;
 
   try {
-    // Fetch current status
+    // Fetch current status AND owner
     const current = await db.query(
-      `SELECT id, status FROM reservations WHERE id = $1 AND is_active = TRUE`,
+      `SELECT id, status, user_id FROM reservations WHERE id = $1 AND is_active = TRUE`,
       [req.params.id]
     );
     if (!current.rowCount) {
@@ -311,9 +351,43 @@ const updateStatus = async (req, res, next) => {
       return next(err);
     }
 
-    const currentStatus = current.rows[0].status;
-    const allowed = VALID_TRANSITIONS[currentStatus] || [];
+    const { status: currentStatus, user_id: ownerId } = current.rows[0];
+    const isOwner = ownerId === actorId;
 
+    // ── Role-based authorization checks ────────────────────────────────────────
+    if (actorRole !== 'admin') {
+      // Professors: can approve pending, can cancel their OWN reservation only
+      if (actorRole === 'professor') {
+        if (newStatus === 'approved' && currentStatus !== 'pending') {
+          const err = new Error('Professors can only approve reservations that are currently pending.');
+          err.statusCode = 403;
+          return next(err);
+        }
+        if (newStatus === 'cancelled' && !isOwner) {
+          const err = new Error('Professors can only cancel their own reservations.');
+          err.statusCode = 403;
+          return next(err);
+        }
+      }
+
+      // Students (safety fallback — route should block them first):
+      if (actorRole === 'student') {
+        if (newStatus !== 'cancelled') {
+          const err = new Error('Students can only cancel reservations.');
+          err.statusCode = 403;
+          return next(err);
+        }
+        if (!isOwner) {
+          const err = new Error('Students can only cancel their own reservations.');
+          err.statusCode = 403;
+          return next(err);
+        }
+      }
+    }
+    // ──────────────────────────────────────────────────────────────────────────
+
+    // State machine check
+    const allowed = VALID_TRANSITIONS[currentStatus] || [];
     if (!allowed.includes(newStatus)) {
       const err = new Error(
         `Invalid status transition: "${currentStatus}" → "${newStatus}". Allowed: [${allowed.join(', ') || 'none — this is a terminal state'}]`
@@ -322,14 +396,14 @@ const updateStatus = async (req, res, next) => {
       return next(err);
     }
 
-    // Build update: set approved_by if transitioning to 'approved'
+    // Build update
     const fields = ['status = $1'];
     const params = [newStatus];
     let idx = 2;
 
-    if (newStatus === 'approved' && approved_by) {
+    if (newStatus === 'approved') {
       fields.push(`approved_by = $${idx++}`);
-      params.push(approved_by);
+      params.push(actorId);
     }
 
     params.push(req.params.id);
@@ -339,14 +413,15 @@ const updateStatus = async (req, res, next) => {
     );
 
     res.status(200).json({
-      status: 'ok',
+      status:  'ok',
       message: `Reservation status updated: "${currentStatus}" → "${newStatus}".`,
-      data: result.rows[0],
+      data:    result.rows[0],
     });
   } catch (err) {
     next(err);
   }
 };
+
 
 // ─── POST /api/reservations/:id/condition-log ─────────────────────────────────
 // Logs item condition at return. Also updates equipment_items.condition atomically.

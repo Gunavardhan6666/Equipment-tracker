@@ -45,20 +45,39 @@ export default function Topbar() {
       className="h-16 sticky top-0 z-10 flex items-center justify-between px-6
                  border-b border-surface-border bg-surface/95 backdrop-blur-md shrink-0"
     >
-      {/* Breadcrumb */}
-      <div className="flex items-center gap-2 text-sm">
-        <span className="text-white/30 font-medium">EquipTrack</span>
-        <span className="text-white/20">/</span>
-        <span className="text-white font-semibold">{breadcrumb}</span>
+      {/* Left side: back button + breadcrumb */}
+      <div className="flex items-center gap-3">
+        {/* Back button — shown on all routes except root Dashboard */}
+        {pathname !== '/' && (
+          <button
+            id="topbar-back-btn"
+            onClick={() => {
+              // Always stop at the Dashboard — never go past it
+              if (window.history.state?.idx > 0) {
+                navigate(-1)
+              } else {
+                navigate('/')
+              }
+            }}
+            title="Go back"
+            className="btn-ghost px-2 py-2 text-white/40 hover:text-white shrink-0"
+          >
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10.5 19.5L3 12m0 0l7.5-7.5M3 12h18" />
+            </svg>
+          </button>
+        )}
+
+        {/* Breadcrumb */}
+        <div className="flex items-center gap-2 text-sm">
+          <span className="text-white/30 font-medium">EquipTrack</span>
+          <span className="text-white/20">/</span>
+          <span className="text-white font-semibold">{breadcrumb}</span>
+        </div>
       </div>
 
       {/* Right side */}
       <div className="flex items-center gap-3">
-        {/* Phase badge */}
-        <span className="badge badge-brand hidden sm:flex">
-          <span className="w-1.5 h-1.5 rounded-full bg-brand-400 mr-1.5 inline-block" />
-          Phase 5
-        </span>
 
         {/* Role badge */}
         {user && (
