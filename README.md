@@ -1,7 +1,7 @@
 <div align="center">
   <img src="https://via.placeholder.com/150x150/111827/6366f1?text=ET" alt="Equipment Tracker Logo" width="120" />
   <h1>Equipment Tracker</h1>
-  <p><strong>Enterprise-Grade Asset Management & Reservation System</strong></p>
+  <p><strong>A Full-Stack Hardware Inventory & Reservation Engine</strong></p>
 </div>
 
 <br />
