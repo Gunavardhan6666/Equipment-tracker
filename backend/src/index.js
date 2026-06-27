@@ -2,18 +2,18 @@
 
 require('dotenv').config();
 
-const express  = require('express');
-const cors     = require('cors');
-const helmet   = require('helmet');
-const morgan   = require('morgan');
+const express = require('express');
+const cors = require('cors');
+const helmet = require('helmet');
+const morgan = require('morgan');
 
 const { testConnection } = require('./config/db');
-const notFound     = require('./middleware/notFound');
+const notFound = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
 const { updateOverdueReservations } = require('./utils/statusEngine');
 
 // ─── App Initialization ───────────────────────────────────────────────────────
-const app  = express();
+const app = express();
 const PORT = process.env.PORT || 5000;
 
 // ─── Security & Logging Middleware ────────────────────────────────────────────
@@ -22,7 +22,7 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  process.env.CLIENT_ORIGIN || 'http://localhost:5173',
+  process.env.CLIENT_ORIGIN || 'http://localhost:5173', 'https://equipment-tracker-10t0n0blo-gunavardhan6666s-projects.vercel.app'
 ];
 
 app.use(
@@ -61,10 +61,10 @@ app.get('/api/health', (_req, res) => {
 app.use('/api/auth', require('./routes/auth'));
 
 // Phase 3: core resource routes (all active)
-app.use('/api/categories',   require('./routes/categories'));
-app.use('/api/items',        require('./routes/items'));
+app.use('/api/categories', require('./routes/categories'));
+app.use('/api/items', require('./routes/items'));
 app.use('/api/reservations', require('./routes/reservations'));
-app.use('/api/kits',         require('./routes/kits'));
+app.use('/api/kits', require('./routes/kits'));
 
 // ─── 404 & Error Handlers (must be last) ─────────────────────────────────────
 app.use(notFound);
