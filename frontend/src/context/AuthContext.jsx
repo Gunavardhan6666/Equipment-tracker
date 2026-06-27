@@ -11,11 +11,11 @@ import { apiPost } from '../api/client.js'
 const AuthContext = createContext(null)
 
 const TOKEN_KEY = 'equiptrack_token'
-const USER_KEY  = 'equiptrack_user'
+const USER_KEY = 'equiptrack_user'
 
 export function AuthProvider({ children }) {
-  const [token,   setToken]   = useState(() => localStorage.getItem(TOKEN_KEY))
-  const [user,    setUser]    = useState(() => {
+  const [token, setToken] = useState(() => localStorage.getItem(TOKEN_KEY))
+  const [user, setUser] = useState(() => {
     try {
       const stored = localStorage.getItem(USER_KEY)
       return stored ? JSON.parse(stored) : null
@@ -40,7 +40,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     setLoading(true)
     try {
-      const data = await apiPost('/auth/login', { email, password })
+      const data = await apiPost('/api/auth/login', { email, password })
       setToken(data.token)
       setUser(data.user)
       return data
