@@ -64,7 +64,16 @@ const getAllReservations = async (req, res, next) => {
     // ────────────────────────────────────────────────────────────────────────────
 
     if (item_id)      { conditions.push(`r.item_id = $${idx++}`);                  params.push(item_id); }
-    if (status)       { conditions.push(`r.status = $${idx++}`);                   params.push(status); }
+    if (status) {
+      if (status.includes(',')) {
+        const statuses = status.split(',');
+        conditions.push(`r.status = ANY($${idx++}::text[])`);
+        params.push(statuses);
+      } else {
+        conditions.push(`r.status = $${idx++}`);                   
+        params.push(status);
+      }
+    }
     if (kit_id)       { conditions.push(`r.kit_id = $${idx++}`);                   params.push(kit_id); }
     if (start_after)  { conditions.push(`r.start_time >= $${idx++}::TIMESTAMPTZ`); params.push(start_after); }
     if (start_before) { conditions.push(`r.start_time <= $${idx++}::TIMESTAMPTZ`); params.push(start_before); }
@@ -162,14 +171,20 @@ const createReservation = async (req, res, next) => {
   const { id: user_id, role } = req.user;
 
   try {
-    // 1. Confirm item exists and is active
+    // 1. Confirm item exists, is active, and is in good/fair condition
     const itemCheck = await db.query(
-      `SELECT id, name, serial_number FROM equipment_items WHERE id = $1 AND is_active = TRUE`,
+      `SELECT id, name, serial_number, condition FROM equipment_items WHERE id = $1 AND is_active = TRUE`,
       [item_id]
     );
     if (!itemCheck.rowCount) {
       const err = new Error('Equipment item not found or is archived.');
       err.statusCode = 404;
+      return next(err);
+    }
+    
+    if (itemCheck.rows[0].condition !== 'good' && itemCheck.rows[0].condition !== 'fair') {
+      const err = new Error(`Item cannot be booked because its condition is currently "${itemCheck.rows[0].condition}".`);
+      err.statusCode = 400;
       return next(err);
     }
 

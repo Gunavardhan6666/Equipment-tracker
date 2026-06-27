@@ -2,7 +2,9 @@
 
 const bcrypt  = require('bcryptjs');
 const jwt     = require('jsonwebtoken');
+const dns     = require('dns').promises;
 const db      = require('../config/db');
+const { updateOverdueReservations } = require('../utils/statusEngine');
 
 const SALT_ROUNDS = 12;
 
@@ -31,10 +33,33 @@ const register = async (req, res, next) => {
   const { email, password, full_name, role } = req.body;
 
   try {
-    // 1. Check for duplicate email
+    const cleanEmail = email.toLowerCase().trim();
+
+    // 1. Validate Email format via Regex
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(cleanEmail)) {
+      const err = new Error('Invalid email format.');
+      err.statusCode = 400;
+      return next(err);
+    }
+
+    // 2. Validate Email Domain MX Records (Cost-Free Validation)
+    const domain = cleanEmail.split('@')[1];
+    try {
+      const mxRecords = await dns.resolveMx(domain);
+      if (!mxRecords || mxRecords.length === 0) {
+        throw new Error('No MX records');
+      }
+    } catch (e) {
+      const err = new Error(`Email domain "${domain}" does not exist or cannot receive emails.`);
+      err.statusCode = 400;
+      return next(err);
+    }
+
+    // 3. Check for duplicate email
     const existing = await db.query(
       'SELECT id FROM users WHERE email = $1',
-      [email.toLowerCase().trim()]
+      [cleanEmail]
     );
     if (existing.rowCount > 0) {
       const err = new Error('An account with that email already exists.');
@@ -54,7 +79,7 @@ const register = async (req, res, next) => {
       `INSERT INTO users (email, password_hash, full_name, role)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [email.toLowerCase().trim(), password_hash, full_name.trim(), safeRole]
+      [cleanEmail, password_hash, full_name.trim(), safeRole]
     );
 
     const user  = result.rows[0];
@@ -104,6 +129,9 @@ const login = async (req, res, next) => {
 
     // 3. Sign and return token
     const token = signToken(user);
+
+    // 4. Trigger background status engine to catch overdue items
+    updateOverdueReservations();
 
     res.status(200).json({
       status:  'ok',

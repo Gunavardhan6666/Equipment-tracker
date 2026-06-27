@@ -8,7 +8,7 @@ import LoadingSpinner from '../components/ui/LoadingSpinner.jsx'
 import EmptyState from '../components/ui/EmptyState.jsx'
 import BookingModal from '../components/booking/BookingModal.jsx'
 
-const STATUSES = ['all', 'pending', 'approved', 'active', 'returned', 'overdue', 'cancelled']
+const STATUSES = ['all', 'pending', 'approved', 'active', 'overdue', 'history']
 
 const ROLE_STYLE = {
   admin:     'badge-danger',
@@ -232,7 +232,7 @@ export default function Reservations() {
     }
   }, [location.state?.initialTab])
 
-  const qs  = activeTab !== 'all' ? `?status=${activeTab}` : ''
+  const qs = activeTab === 'all' ? '' : activeTab === 'history' ? '?status=returned,cancelled' : `?status=${activeTab}`
   const res = useApi(() => apiGet(`/reservations${qs}`), [activeTab, refetchKey])
   const inventory = useApi(() => apiGet('/items'), [])
 

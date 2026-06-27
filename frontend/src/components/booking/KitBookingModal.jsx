@@ -1,6 +1,8 @@
 import { useState, useEffect, useRef } from 'react'
 import { createPortal } from 'react-dom'
 import { useBooking } from '../../hooks/useBooking.js'
+import CompactCalendar from './CompactCalendar.jsx'
+import TimeSlotPicker from './TimeSlotPicker.jsx'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 function toLocalInput(date) {
@@ -21,23 +23,11 @@ export default function KitBookingModal({ kit, onClose, onSuccess }) {
   const { bookKit, loading, error, success } = useBooking()
   const overlayRef = useRef(null)
 
-  const defaultStart = () => {
-    const d = new Date(Date.now() + 60 * 60 * 1000)
-    d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0)
-    return d
-  }
-  const defaultEnd = () => {
-    const d = defaultStart()
-    d.setHours(d.getHours() + 1)
-    return d
-  }
-
-  const [startInput, setStartInput] = useState(toLocalInput(defaultStart()))
-  const [endInput,   setEndInput]   = useState(toLocalInput(defaultEnd()))
-  const [notes,      setNotes]      = useState('')
-
-  const startISO = startInput ? new Date(startInput).toISOString() : ''
-  const endISO   = endInput   ? new Date(endInput).toISOString()   : ''
+  const [selectedDate, setSelectedDate] = useState('')
+  const [startISO, setStartISO] = useState(null)
+  const [endISO, setEndISO] = useState(null)
+  const [available, setAvailable] = useState(false)
+  const [notes, setNotes] = useState('')
 
   // Close on Escape
   useEffect(() => {
@@ -59,7 +49,7 @@ export default function KitBookingModal({ kit, onClose, onSuccess }) {
     await bookKit({ kit_id: kit.id, start_time: startISO, end_time: endISO, notes: notes || undefined })
   }
 
-  const canBook = startISO && endISO && !loading
+  const canBook = available && startISO && endISO && !loading
 
   const modal = (
     <div
@@ -110,34 +100,24 @@ export default function KitBookingModal({ kit, onClose, onSuccess }) {
               </p>
             </div>
 
-            {/* Date range */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label htmlFor="kit-booking-start" className="text-xs font-semibold text-white/50 uppercase tracking-wider">
-                  From
-                </label>
-                <input
-                  id="kit-booking-start"
-                  type="datetime-local"
-                  required
-                  value={startInput}
-                  onChange={(e) => setStartInput(e.target.value)}
-                  className="input-field text-sm"
-                />
-              </div>
-              <div className="space-y-1.5">
-                <label htmlFor="kit-booking-end" className="text-xs font-semibold text-white/50 uppercase tracking-wider">
-                  To
-                </label>
-                <input
-                  id="kit-booking-end"
-                  type="datetime-local"
-                  required
-                  value={endInput}
-                  onChange={(e) => setEndInput(e.target.value)}
-                  className="input-field text-sm"
-                />
-              </div>
+            {/* Date range via Calendar & TimeSlotPicker */}
+            <div className="space-y-4">
+              <CompactCalendar 
+                entityId={kit.id}
+                type="kit"
+                selectedDate={selectedDate}
+                onDateSelect={setSelectedDate}
+              />
+              <TimeSlotPicker 
+                entityId={kit.id}
+                type="kit"
+                date={selectedDate}
+                onTimeSelected={(s, e, valid) => {
+                  setStartISO(s)
+                  setEndISO(e)
+                  setAvailable(valid)
+                }}
+              />
             </div>
 
             {/* Notes */}

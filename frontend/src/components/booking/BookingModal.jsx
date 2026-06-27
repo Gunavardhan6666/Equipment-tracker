@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createPortal } from 'react-dom'
-import AvailabilityChecker from './AvailabilityChecker.jsx'
+import CompactCalendar from './CompactCalendar.jsx'
+import TimeSlotPicker from './TimeSlotPicker.jsx'
 import { useBooking } from '../../hooks/useBooking.js'
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -19,33 +20,22 @@ function toLocalInput(date) {
 //   onClose    — called when modal should be dismissed
 //   onSuccess  — called after a successful booking (triggers parent refetch)
 // ──────────────────────────────────────────────────────────────────────────────
-export default function BookingModal({ item, onClose, onSuccess }) {
-  const { book, loading, error, success, reset } = useBooking()
+export default function BookingModal({ item, startISO, endISO, onClose, onSuccess }) {
+  const { book, loading, error, success } = useBooking()
   const overlayRef = useRef(null)
 
   const bufferHrs = typeof item.buffer_hours === 'object' ? (item.buffer_hours?.hours || 0) : (item.buffer_hours || 0)
 
 
-  // Default: from now+1h to now+2h (rounded to nearest 30min)
-  const defaultStart = () => {
-    const d = new Date(Date.now() + 60 * 60 * 1000)
-    d.setMinutes(d.getMinutes() < 30 ? 0 : 30, 0, 0)
-    return d
-  }
-  const defaultEnd = () => {
-    const d = defaultStart()
-    d.setHours(d.getHours() + 1)
-    return d
-  }
+  const [selectedDate, setSelectedDate] = useState('')
+  const [internalStartISO, setInternalStartISO] = useState(null)
+  const [internalEndISO, setInternalEndISO] = useState(null)
+  const [internalAvailable, setInternalAvailable] = useState(false)
+  const [notes, setNotes] = useState('')
 
-  const [startInput, setStartInput] = useState(toLocalInput(defaultStart()))
-  const [endInput,   setEndInput]   = useState(toLocalInput(defaultEnd()))
-  const [notes,      setNotes]      = useState('')
-  const [available,  setAvailable]  = useState(null)
-
-  // Convert datetime-local strings to ISO for the API
-  const startISO = startInput ? new Date(startInput).toISOString() : ''
-  const endISO   = endInput   ? new Date(endInput).toISOString()   : ''
+  const finalStart = startISO || internalStartISO
+  const finalEnd = endISO || internalEndISO
+  const canBook = (startISO && endISO) ? (!loading) : (internalAvailable && finalStart && finalEnd && !loading)
 
   // Close on Escape key
   useEffect(() => {
@@ -64,10 +54,8 @@ export default function BookingModal({ item, onClose, onSuccess }) {
 
   const handleSubmit = async (e) => {
     e.preventDefault()
-    await book({ item_id: item.id, start_time: startISO, end_time: endISO, notes: notes || undefined })
+    await book({ item_id: item.id, start_time: finalStart, end_time: finalEnd, notes: notes || undefined })
   }
-
-  const canBook = available === true && startISO && endISO && !loading
 
   const modal = (
     <div
@@ -116,43 +104,26 @@ export default function BookingModal({ item, onClose, onSuccess }) {
             )}
 
 
-            {/* Date range */}
-            <div className="grid grid-cols-2 gap-3">
-              <div className="space-y-1.5">
-                <label htmlFor="booking-start" className="text-xs font-semibold text-white/50 uppercase tracking-wider">
-                  From
-                </label>
-                <input
-                  id="booking-start"
-                  type="datetime-local"
-                  required
-                  value={startInput}
-                  onChange={(e) => { setStartInput(e.target.value); setAvailable(null) }}
-                  className="input-field text-sm"
+            {!startISO && !endISO && (
+              <div className="space-y-4">
+                <CompactCalendar 
+                  entityId={item.id}
+                  type="item"
+                  selectedDate={selectedDate}
+                  onDateSelect={setSelectedDate}
+                />
+                <TimeSlotPicker 
+                  entityId={item.id}
+                  type="item"
+                  date={selectedDate}
+                  onTimeSelected={(s, e, valid) => {
+                    setInternalStartISO(s)
+                    setInternalEndISO(e)
+                    setInternalAvailable(valid)
+                  }}
                 />
               </div>
-              <div className="space-y-1.5">
-                <label htmlFor="booking-end" className="text-xs font-semibold text-white/50 uppercase tracking-wider">
-                  To
-                </label>
-                <input
-                  id="booking-end"
-                  type="datetime-local"
-                  required
-                  value={endInput}
-                  onChange={(e) => { setEndInput(e.target.value); setAvailable(null) }}
-                  className="input-field text-sm"
-                />
-              </div>
-            </div>
-
-            {/* Live availability */}
-            <AvailabilityChecker
-              itemId={item.id}
-              start={startISO}
-              end={endISO}
-              onResult={setAvailable}
-            />
+            )}
 
             {/* Notes */}
             <div className="space-y-1.5">
@@ -209,9 +180,9 @@ export default function BookingModal({ item, onClose, onSuccess }) {
               </button>
             </div>
 
-            {!canBook && !loading && available !== true && startISO && endISO && (
+            {!canBook && !loading && !startISO && (
               <p className="text-center text-[11px] text-white/25">
-                Confirm button unlocks once the date range shows as available
+                Confirm button unlocks once a valid time slot is selected.
               </p>
             )}
           </form>

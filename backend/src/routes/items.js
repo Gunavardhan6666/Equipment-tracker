@@ -55,6 +55,34 @@ router.get(
   ctrl.checkAvailability
 );
 
+// ─── GET /api/items/:id/calendar ─────────────────────────────────────────────
+// Returns scrubbed availability data for a specific month (YYYY-MM).
+router.get(
+  '/:id/calendar',
+  [
+    param('id').isUUID().withMessage('Item ID must be a valid UUID.'),
+    query('month')
+      .notEmpty().withMessage('month query parameter is required.')
+      .matches(/^\d{4}-\d{2}$/).withMessage('month must be in YYYY-MM format.')
+  ],
+  validate,
+  ctrl.getItemCalendar
+);
+
+// ─── GET /api/items/:id/timeslots ────────────────────────────────────────────
+// Returns continuous available time windows for a specific date.
+router.get(
+  '/:id/timeslots',
+  [
+    param('id').isUUID().withMessage('Item ID must be a valid UUID.'),
+    query('date')
+      .notEmpty().withMessage('date query parameter is required.')
+      .matches(/^\d{4}-\d{2}-\d{2}$/).withMessage('date must be in YYYY-MM-DD format.')
+  ],
+  validate,
+  ctrl.getItemTimeSlots
+);
+
 // ─── POST /api/items ──────────────────────────────────────────────────────────
 // Admin only — creates a new equipment item.
 router.post(

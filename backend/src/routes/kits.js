@@ -1,7 +1,7 @@
 'use strict';
 
 const { Router } = require('express');
-const { body, param } = require('express-validator');
+const { body, param, query } = require('express-validator');
 const validate        = require('../middleware/validate');
 const { verifyToken } = require('../middleware/authenticate');
 const { requireRole } = require('../middleware/authorize');
@@ -19,6 +19,28 @@ router.get(
   [param('id').isUUID().withMessage('Kit ID must be a valid UUID.')],
   validate,
   ctrl.getKitById
+);
+
+// ─── GET /api/kits/:id/calendar ──────────────────────────────────────────────
+router.get(
+  '/:id/calendar',
+  [
+    param('id').isUUID().withMessage('Kit ID must be a valid UUID.'),
+    query('month').notEmpty().matches(/^\d{4}-\d{2}$/)
+  ],
+  validate,
+  ctrl.getKitCalendar
+);
+
+// ─── GET /api/kits/:id/timeslots ─────────────────────────────────────────────
+router.get(
+  '/:id/timeslots',
+  [
+    param('id').isUUID().withMessage('Kit ID must be a valid UUID.'),
+    query('date').notEmpty().matches(/^\d{4}-\d{2}-\d{2}$/)
+  ],
+  validate,
+  ctrl.getKitTimeSlots
 );
 
 // ─── POST /api/kits ───────────────────────────────────────────────────────────

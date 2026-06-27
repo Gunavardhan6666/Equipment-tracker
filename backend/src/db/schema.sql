@@ -35,8 +35,9 @@ CREATE TABLE IF NOT EXISTS equipment_items (
     name TEXT NOT NULL,
     serial_number TEXT UNIQUE NOT NULL,
     description TEXT,
-    condition TEXT DEFAULT 'good' NOT NULL CHECK (condition IN ('good', 'fair', 'damaged', 'retired')),
+    condition TEXT DEFAULT 'good' NOT NULL CHECK (condition IN ('good', 'fair', 'damaged', 'in_maintenance', 'retired', 'lost', 'stolen')),
     notes TEXT,
+    turnaround_buffer_minutes INTEGER DEFAULT 0 NOT NULL,
     is_active BOOLEAN DEFAULT TRUE NOT NULL,
     created_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL,
     updated_at TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP NOT NULL

@@ -10,6 +10,7 @@ const morgan   = require('morgan');
 const { testConnection } = require('./config/db');
 const notFound     = require('./middleware/notFound');
 const errorHandler = require('./middleware/errorHandler');
+const { updateOverdueReservations } = require('./utils/statusEngine');
 
 // ─── App Initialization ───────────────────────────────────────────────────────
 const app  = express();
@@ -73,6 +74,11 @@ app.use(errorHandler);
 const startServer = async () => {
   // Verify DB connectivity on startup (non-fatal in dev — server still starts)
   await testConnection();
+
+  // Start the background status engine (runs every 5 minutes while server is awake)
+  setInterval(updateOverdueReservations, 5 * 60 * 1000);
+  // Run once immediately on startup
+  updateOverdueReservations();
 
   app.listen(PORT, () => {
     console.log('');

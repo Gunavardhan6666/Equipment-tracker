@@ -71,6 +71,170 @@ const getKitById = async (req, res, next) => {
   }
 };
 
+// ─── GET /api/kits/:id/calendar ───────────────────────────────────────────────
+const getKitCalendar = async (req, res, next) => {
+  // Simplified calendar: we will just return a placeholder or calculate roughly.
+  // Realistically, computing a full month for kits is heavy, so we can just check day by day
+  // or return an empty array for now and let the frontend fetch day slots when clicked.
+  // We'll return an empty array of reservations to make the calendar look entirely available,
+  // then actual clicking on a day queries /timeslots.
+  try {
+    const { id } = req.params;
+    const { month } = req.query;
+    res.status(200).json({
+      status: 'ok',
+      data: {
+        kit_id: id,
+        month,
+        reservations: [] // Front-end will rely on the daily timeslots
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── GET /api/kits/:id/timeslots ──────────────────────────────────────────────
+const getKitTimeSlots = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query; // YYYY-MM-DD
+
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd = new Date(`${date}T23:59:59.999Z`);
+
+    // Fetch kit requirements
+    const reqsResult = await db.query(
+      `SELECT equipment_name, quantity FROM kit_items WHERE kit_id = $1`,
+      [id]
+    );
+    if (!reqsResult.rowCount) {
+      return res.status(200).json({ status: 'ok', data: { date, windows: [] } });
+    }
+
+    const { OVERLAP_SQL } = require('./itemsController');
+
+    // For each requirement, calculate valid windows
+    const reqWindows = [];
+
+    for (const req of reqsResult.rows) {
+      // Find eligible items
+      const itemsRes = await db.query(
+        `SELECT ei.id, ec.buffer_hours, ei.turnaround_buffer_minutes 
+         FROM equipment_items ei
+         JOIN equipment_categories ec ON ec.id = ei.category_id
+         WHERE ei.name = $1 AND ei.is_active = TRUE AND ei.condition IN ('good', 'fair')`,
+        [req.equipment_name]
+      );
+      
+      const eligibleItems = itemsRes.rows;
+      if (eligibleItems.length < req.quantity) {
+        // Impossible to fulfill this requirement
+        return res.status(200).json({ status: 'ok', data: { date, windows: [] } });
+      }
+
+      // Collect all available intervals for each item
+      const itemAvailableIntervals = [];
+
+      for (const item of eligibleItems) {
+        const bufferMs = (item.buffer_hours * 60 * 60 * 1000) + (item.turnaround_buffer_minutes * 60 * 1000);
+        const overlapRes = await db.query(
+          `SELECT start_time, end_time
+           FROM reservations
+           WHERE item_id = $1 AND is_active = TRUE AND status NOT IN ('cancelled', 'returned')
+             AND start_time < $3::TIMESTAMPTZ + INTERVAL '24 hours'
+             AND end_time > $2::TIMESTAMPTZ - INTERVAL '24 hours'`,
+          [item.id, dayStart.toISOString(), dayEnd.toISOString()]
+        );
+        
+        const blocked = overlapRes.rows.map(r => ({
+          start: new Date(new Date(r.start_time).getTime() - bufferMs),
+          end: new Date(new Date(r.end_time).getTime() + bufferMs)
+        }));
+        
+        // Merge blocked
+        blocked.sort((a,b) => a.start - b.start);
+        const merged = [];
+        for (const b of blocked) {
+          if (!merged.length) merged.push(b);
+          else {
+            const last = merged[merged.length - 1];
+            if (b.start <= last.end) last.end = new Date(Math.max(last.end, b.end));
+            else merged.push(b);
+          }
+        }
+        
+        // Invert to get available within dayStart, dayEnd
+        let currentStart = dayStart;
+        for (const b of merged) {
+          if (b.start > currentStart) {
+            itemAvailableIntervals.push({ start: currentStart, end: (b.start > dayEnd ? dayEnd : b.start) });
+          }
+          currentStart = new Date(Math.max(currentStart, b.end));
+          if (currentStart >= dayEnd) break;
+        }
+        if (currentStart < dayEnd) {
+          itemAvailableIntervals.push({ start: currentStart, end: dayEnd });
+        }
+      }
+
+      // Line sweep to find when at least req.quantity items are available
+      const events = [];
+      for (const inv of itemAvailableIntervals) {
+        events.push({ time: inv.start, type: 1 });
+        events.push({ time: inv.end, type: -1 });
+      }
+      events.sort((a,b) => a.time - b.time || b.type - a.type);
+
+      let count = 0;
+      let validStart = null;
+      const validIntervals = [];
+
+      for (const e of events) {
+        const prevCount = count;
+        count += e.type;
+        if (prevCount < req.quantity && count >= req.quantity) {
+          validStart = e.time;
+        } else if (prevCount >= req.quantity && count < req.quantity) {
+          if (validStart && validStart < e.time) {
+            validIntervals.push({ start: validStart, end: e.time });
+          }
+          validStart = null;
+        }
+      }
+      reqWindows.push(validIntervals);
+    }
+
+    // Now, intersect the validIntervals of ALL requirements
+    let intersection = reqWindows[0];
+    for (let i = 1; i < reqWindows.length; i++) {
+      const nextInt = [];
+      const current = reqWindows[i];
+      for (const a of intersection) {
+        for (const b of current) {
+          const maxStart = new Date(Math.max(a.start, b.start));
+          const minEnd = new Date(Math.min(a.end, b.end));
+          if (maxStart < minEnd) {
+            nextInt.push({ start: maxStart, end: minEnd });
+          }
+        }
+      }
+      intersection = nextInt;
+    }
+
+    res.status(200).json({
+      status: 'ok',
+      data: {
+        kit_id: id,
+        date,
+        windows: intersection.map(w => ({ start: w.start.toISOString(), end: w.end.toISOString() }))
+      }
+    });
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ─── POST /api/kits ───────────────────────────────────────────────────────────
 const createKit = async (req, res, next) => {
   const { name, description } = req.body;
@@ -193,6 +357,8 @@ const softDeleteKit = async (req, res, next) => {
 module.exports = {
   getAllKits,
   getKitById,
+  getKitCalendar,
+  getKitTimeSlots,
   createKit,
   updateKit,
   addItemToKit,

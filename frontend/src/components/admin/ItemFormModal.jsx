@@ -15,7 +15,7 @@ const CONDITIONS = [
   { value: 'stolen',         label: 'Stolen' },
 ]
 
-const BLANK = { name: '', description: '', notes: '', condition: 'good', category_id: '' }
+const BLANK = { name: '', description: '', notes: '', condition: 'good', category_id: '', turnaround_buffer_minutes: 0 }
 
 // ─── ItemFormModal ────────────────────────────────────────────────────────────
 // Used for both Add (item = null) and Edit (item = existing item object).
@@ -39,6 +39,7 @@ export default function ItemFormModal({ item, onClose, onSuccess }) {
           notes:         item.notes         ?? '',
           condition:     item.condition     ?? 'good',
           category_id:   item.category_id   ?? '',
+          turnaround_buffer_minutes: item.turnaround_buffer_minutes ?? 0,
         }
       : { ...BLANK }
   )
@@ -177,6 +178,24 @@ export default function ItemFormModal({ item, onClose, onSuccess }) {
                   ))}
                 </select>
               </div>
+            </div>
+
+            {/* Turnaround Buffer */}
+            <div className="space-y-1.5">
+              <label htmlFor="item-buffer" className="text-xs font-semibold text-white/50 uppercase tracking-wider flex items-center justify-between">
+                <span>Turnaround Buffer <span className="text-white/25 font-normal normal-case">(mins)</span></span>
+              </label>
+              <input
+                id="item-buffer"
+                type="number"
+                min="0"
+                step="15"
+                value={form.turnaround_buffer_minutes}
+                onChange={set('turnaround_buffer_minutes')}
+                placeholder="e.g. 30"
+                className="input-field"
+              />
+              <p className="text-[10px] text-white/30 mt-1">Extra time added after reservations for charging/maintenance.</p>
             </div>
 
             {/* Description */}

@@ -16,15 +16,15 @@ const OVERLAP_SQL = `
     r.start_time,
     r.end_time,
     r.status,
-    (ec.buffer_hours || ' hours')::INTERVAL          AS buffer_applied
+    ((ec.buffer_hours || ' hours')::INTERVAL + (ei.turnaround_buffer_minutes || ' minutes')::INTERVAL) AS buffer_applied
   FROM reservations r
   JOIN equipment_items      ei ON ei.id = r.item_id
   JOIN equipment_categories ec ON ec.id = ei.category_id
   WHERE r.item_id    = $1
     AND r.status    NOT IN ('cancelled', 'returned')
     AND r.is_active  = TRUE
-    AND r.start_time < ($3::TIMESTAMPTZ + (ec.buffer_hours || ' hours')::INTERVAL)
-    AND (r.end_time  + (ec.buffer_hours || ' hours')::INTERVAL) > $2::TIMESTAMPTZ
+    AND r.start_time < ($3::TIMESTAMPTZ + (ec.buffer_hours || ' hours')::INTERVAL + (ei.turnaround_buffer_minutes || ' minutes')::INTERVAL)
+    AND (r.end_time  + (ec.buffer_hours || ' hours')::INTERVAL + (ei.turnaround_buffer_minutes || ' minutes')::INTERVAL) > $2::TIMESTAMPTZ
 `;
 // $1 = item_id  |  $2 = requested_start  |  $3 = requested_end
 
@@ -54,7 +54,7 @@ const getAllItems = async (req, res, next) => {
     const sql = `
       SELECT
         ei.id, ei.name, ei.serial_number, ei.description,
-        ei.condition, ei.notes, ei.is_active,
+        ei.condition, ei.notes, ei.turnaround_buffer_minutes, ei.is_active,
         ei.created_at, ei.updated_at,
         ec.id   AS category_id,
         ec.name AS category_name,
@@ -78,7 +78,7 @@ const getItemById = async (req, res, next) => {
     const result = await db.query(
       `SELECT
          ei.id, ei.name, ei.serial_number, ei.description,
-         ei.condition, ei.notes, ei.is_active,
+         ei.condition, ei.notes, ei.turnaround_buffer_minutes, ei.is_active,
          ei.created_at, ei.updated_at,
          ec.id          AS category_id,
          ec.name        AS category_name,
@@ -110,7 +110,7 @@ const checkAvailability = async (req, res, next) => {
 
     // Fetch item info for the response envelope
     const itemResult = await db.query(
-      `SELECT ei.id, ei.name, ei.serial_number, ec.buffer_hours
+      `SELECT ei.id, ei.name, ei.serial_number, ei.condition, ei.turnaround_buffer_minutes, ec.buffer_hours
        FROM equipment_items ei
        JOIN equipment_categories ec ON ec.id = ei.category_id
        WHERE ei.id = $1 AND ei.is_active = TRUE`,
@@ -134,7 +134,9 @@ const checkAvailability = async (req, res, next) => {
         item_id:        item.id,
         item_name:      item.name,
         serial_number:  item.serial_number,
+        condition:      item.condition,
         buffer_hours:   item.buffer_hours,
+        turnaround_buffer_minutes: item.turnaround_buffer_minutes,
         requested: { start, end },
         available:      conflicts.length === 0,
         conflicts:      conflicts.map((c) => ({
@@ -151,9 +153,177 @@ const checkAvailability = async (req, res, next) => {
   }
 };
 
+// ─── GET /api/items/:id/calendar ──────────────────────────────────────────────
+// Returns scrubbed reservation slots for a given month (YYYY-MM).
+// We don't expose user_id or names for privacy.
+const getItemCalendar = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { month } = req.query; // YYYY-MM
+
+    // 1. Verify item exists
+    const itemCheck = await db.query(
+      `SELECT ei.id, ei.name, ei.condition, ec.buffer_hours, ei.turnaround_buffer_minutes 
+       FROM equipment_items ei
+       JOIN equipment_categories ec ON ec.id = ei.category_id
+       WHERE ei.id = $1 AND ei.is_active = TRUE`,
+      [id]
+    );
+    if (!itemCheck.rowCount) {
+      const err = new Error('Equipment item not found or is archived.');
+      err.statusCode = 404;
+      return next(err);
+    }
+    const item = itemCheck.rows[0];
+
+    // 2. Build start/end of the month (and some pad)
+    const startDate = new Date(`${month}-01T00:00:00Z`);
+    const endDate = new Date(startDate);
+    endDate.setMonth(endDate.getMonth() + 1);
+
+    // 3. Query all overlapping active reservations
+    // We include active, approved, overdue, and pending (they block slots too).
+    // Exclude cancelled/returned.
+    const result = await db.query(
+      `SELECT start_time, end_time, status
+       FROM reservations
+       WHERE item_id = $1
+         AND is_active = TRUE
+         AND status NOT IN ('cancelled', 'returned')
+         AND start_time < $3::TIMESTAMPTZ
+         AND end_time > $2::TIMESTAMPTZ
+       ORDER BY start_time ASC`,
+      [id, startDate.toISOString(), endDate.toISOString()]
+    );
+
+    // 4. Scrub and return data
+    res.status(200).json({
+      status: 'ok',
+      data: {
+        item_id: item.id,
+        item_name: item.name,
+        condition: item.condition,
+        buffer_hours: item.buffer_hours,
+        turnaround_buffer_minutes: item.turnaround_buffer_minutes,
+        month,
+        reservations: result.rows.map(r => ({
+          start_time: r.start_time,
+          end_time: r.end_time,
+          status: r.status // Only 'Booked' theoretically, but exposing status is safe enough
+        }))
+      }
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
+// ─── GET /api/items/:id/timeslots ─────────────────────────────────────────────
+// Returns continuous available time windows for a specific date (YYYY-MM-DD).
+const getItemTimeSlots = async (req, res, next) => {
+  try {
+    const { id } = req.params;
+    const { date } = req.query; // YYYY-MM-DD
+
+    // 1. Verify item exists
+    const itemCheck = await db.query(
+      `SELECT ei.id, ei.name, ei.condition, ec.buffer_hours, ei.turnaround_buffer_minutes 
+       FROM equipment_items ei
+       JOIN equipment_categories ec ON ec.id = ei.category_id
+       WHERE ei.id = $1 AND ei.is_active = TRUE`,
+      [id]
+    );
+    if (!itemCheck.rowCount) {
+      const err = new Error('Equipment item not found or is archived.');
+      err.statusCode = 404;
+      return next(err);
+    }
+    const item = itemCheck.rows[0];
+
+    // Day boundaries (UTC for now, though real apps should use local time of the inventory)
+    const dayStart = new Date(`${date}T00:00:00.000Z`);
+    const dayEnd = new Date(`${date}T23:59:59.999Z`);
+    
+    // Total buffer in milliseconds
+    const bufferMs = (item.buffer_hours * 60 * 60 * 1000) + (item.turnaround_buffer_minutes * 60 * 1000);
+
+    // Find overlapping reservations
+    // A reservation overlaps if (start - buffer) < dayEnd AND (end + buffer) > dayStart
+    // But we just fetch any reservation that overlaps the day + max possible buffer padding to be safe.
+    const result = await db.query(
+      `SELECT start_time, end_time
+       FROM reservations
+       WHERE item_id = $1
+         AND is_active = TRUE
+         AND status NOT IN ('cancelled', 'returned')
+         AND start_time < $3::TIMESTAMPTZ + INTERVAL '24 hours'
+         AND end_time > $2::TIMESTAMPTZ - INTERVAL '24 hours'
+       ORDER BY start_time ASC`,
+      [id, dayStart.toISOString(), dayEnd.toISOString()]
+    );
+
+    // Build blocked intervals (clamped to the requested day to avoid infinite ranges)
+    const blocked = result.rows.map(r => {
+      const s = new Date(new Date(r.start_time).getTime() - bufferMs);
+      const e = new Date(new Date(r.end_time).getTime() + bufferMs);
+      return { start: s, end: e };
+    });
+
+    // Merge overlapping blocked intervals
+    const merged = [];
+    for (const b of blocked) {
+      if (merged.length === 0) {
+        merged.push(b);
+      } else {
+        const last = merged[merged.length - 1];
+        if (b.start <= last.end) {
+          last.end = new Date(Math.max(last.end, b.end));
+        } else {
+          merged.push(b);
+        }
+      }
+    }
+
+    // Invert to find available windows within [dayStart, dayEnd]
+    const availableWindows = [];
+    let currentStart = dayStart;
+
+    for (const b of merged) {
+      if (b.start > currentStart) {
+        availableWindows.push({
+          start: currentStart.toISOString(),
+          end: (b.start > dayEnd ? dayEnd : b.start).toISOString()
+        });
+      }
+      currentStart = new Date(Math.max(currentStart, b.end));
+      if (currentStart >= dayEnd) break;
+    }
+    
+    if (currentStart < dayEnd) {
+      availableWindows.push({
+        start: currentStart.toISOString(),
+        end: dayEnd.toISOString()
+      });
+    }
+
+    res.status(200).json({
+      status: 'ok',
+      data: {
+        item_id: item.id,
+        date,
+        windows: availableWindows
+      }
+    });
+
+  } catch (err) {
+    next(err);
+  }
+};
+
 // ─── POST /api/items ──────────────────────────────────────────────────────────
 const createItem = async (req, res, next) => {
-  const { category_id, name, description, condition, notes } = req.body;
+  const { category_id, name, description, condition, notes, turnaround_buffer_minutes } = req.body;
   try {
     const result = await db.withTransaction(async (client) => {
       // 1. Fetch category prefix
@@ -188,10 +358,10 @@ const createItem = async (req, res, next) => {
 
       // 3. Insert new item
       const insertRes = await client.query(
-        `INSERT INTO equipment_items (category_id, name, serial_number, description, condition, notes)
-         VALUES ($1, $2, $3, $4, $5, $6)
+        `INSERT INTO equipment_items (category_id, name, serial_number, description, condition, notes, turnaround_buffer_minutes)
+         VALUES ($1, $2, $3, $4, $5, $6, $7)
          RETURNING *`,
-        [category_id, name, serial_number, description || null, condition || 'good', notes || null]
+        [category_id, name, serial_number, description || null, condition || 'good', notes || null, turnaround_buffer_minutes || 0]
       );
       return insertRes.rows[0];
     });
@@ -204,7 +374,7 @@ const createItem = async (req, res, next) => {
 
 // ─── PATCH /api/items/:id ─────────────────────────────────────────────────────
 const updateItem = async (req, res, next) => {
-  const { category_id, name, serial_number, description, condition, notes } = req.body;
+  const { category_id, name, serial_number, description, condition, notes, turnaround_buffer_minutes } = req.body;
   try {
     const fields = [];
     const params = [];
@@ -216,6 +386,7 @@ const updateItem = async (req, res, next) => {
     if (description    !== undefined) { fields.push(`description = $${idx++}`);    params.push(description); }
     if (condition      !== undefined) { fields.push(`condition = $${idx++}`);      params.push(condition); }
     if (notes          !== undefined) { fields.push(`notes = $${idx++}`);          params.push(notes); }
+    if (turnaround_buffer_minutes !== undefined) { fields.push(`turnaround_buffer_minutes = $${idx++}`); params.push(turnaround_buffer_minutes); }
 
     if (!fields.length) {
       const err = new Error('No updatable fields provided.');
@@ -270,6 +441,8 @@ module.exports = {
   getAllItems,
   getItemById,
   checkAvailability,
+  getItemCalendar,
+  getItemTimeSlots,
   createItem,
   updateItem,
   softDeleteItem,
