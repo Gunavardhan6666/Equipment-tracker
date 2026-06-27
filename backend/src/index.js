@@ -22,7 +22,7 @@ app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 
 // ─── CORS ─────────────────────────────────────────────────────────────────────
 const allowedOrigins = [
-  process.env.CLIENT_ORIGIN || 'http://localhost:5173', 'https://equipment-tracker-10t0n0blo-gunavardhan6666s-projects.vercel.app'
+  process.env.CLIENT_ORIGIN || 'http://localhost:5173', 'equipment-tracker-chi.vercel.app'
 ];
 
 app.use(
