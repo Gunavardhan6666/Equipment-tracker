@@ -53,8 +53,8 @@ export function AuthProvider({ children }) {
   const register = useCallback(async ({ email, password, full_name, role }) => {
     setLoading(true)
     try {
-      const data = await apiPost('/auth/register', { email, password, full_name, role })
-      // Don't auto-login after register; redirect to /login
+      // Add the /api prefix here as well
+      const data = await apiPost('/api/auth/register', { email, password, full_name, role })
       return data
     } finally {
       setLoading(false)

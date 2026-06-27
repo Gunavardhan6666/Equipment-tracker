@@ -8,7 +8,7 @@
 
 Welcome to **Equipment Tracker** — a highly scalable, full-stack web application designed for university departments, media studios, and enterprise IT teams to seamlessly manage hardware inventory, coordinate user reservations, and automate equipment lifecycle states.
 
-Engineered with a focus on modern web standards, strict security practices, and a world-class user experience, this platform replaces chaotic spreadsheets with a beautiful, dynamic, and automated scheduling engine.
+Engineered to replace chaotic spreadsheet tracking, this platform provides university departments and media studios with a reliable, automated scheduling engine and robust state management.
 
 ---
 
