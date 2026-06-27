@@ -6,8 +6,8 @@ const { Pool } = require('pg');
 // Uses DATABASE_URL from .env — never hardcode credentials here.
 const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
-  // In production, enable SSL:
-  // ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
+  // In production, enable SSL for cloud databases (like Neon/Supabase)
+  ssl: process.env.NODE_ENV === 'production' ? { rejectUnauthorized: false } : false,
   max: 10,                // max connections in pool
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,

@@ -10,7 +10,7 @@
 //  • 401 responses clear the token and redirect to /login (session expired).
 // ──────────────────────────────────────────────────────────────────────────────
 
-const BASE      = '/api'
+const BASE      = import.meta.env.VITE_API_URL || '/api'
 const TOKEN_KEY = 'equiptrack_token'
 
 // ─── ApiError ────────────────────────────────────────────────────────────────
