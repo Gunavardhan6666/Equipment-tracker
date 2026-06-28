@@ -40,7 +40,7 @@ export function AuthProvider({ children }) {
   const login = useCallback(async (email, password) => {
     setLoading(true)
     try {
-      const data = await apiPost('/api/auth/login', { email, password })
+      const data = await apiPost('/auth/login', { email, password })
       setToken(data.token)
       setUser(data.user)
       return data
@@ -54,7 +54,7 @@ export function AuthProvider({ children }) {
     setLoading(true)
     try {
       // Add the /api prefix here as well
-      const data = await apiPost('/api/auth/register', { email, password, full_name, role })
+      const data = await apiPost('/auth/register', { email, password, full_name, role })
       return data
     } finally {
       setLoading(false)
