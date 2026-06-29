@@ -37,13 +37,15 @@ export function AuthProvider({ children }) {
   }, [token, user])
 
   // ─── login ─────────────────────────────────────────────────────────────────
+  // ─── login ─────────────────────────────────────────────────────────────────
   const login = useCallback(async (email, password) => {
     setLoading(true)
     try {
       const data = await apiPost('/auth/login', { email, password })
 
-      // Add this line to save the token to the browser's long-term memory!
-      localStorage.setItem('token', data.token)
+      // FIX: Force the browser to save these EXACT keys instantly before navigating
+      localStorage.setItem('equiptrack_token', data.token)
+      localStorage.setItem('equiptrack_user', JSON.stringify(data.user))
 
       setToken(data.token)
       setUser(data.user)
