@@ -41,6 +41,10 @@ export function AuthProvider({ children }) {
     setLoading(true)
     try {
       const data = await apiPost('/auth/login', { email, password })
+
+      // Add this line to save the token to the browser's long-term memory!
+      localStorage.setItem('token', data.token)
+
       setToken(data.token)
       setUser(data.user)
       return data
